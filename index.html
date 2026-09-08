@@ -8,7 +8,7 @@
 </head>
 <body>
   <div id="game-wrap">
-    <canvas id="game" width="1000" height="600"></canvas>
+    <canvas id="game" width="1280" height="720"></canvas>
 
     <div id="hud">
       <div class="hud-item"><span class="label">מהירות</span><span id="hud-speed">0</span><span class="unit">קמ״ש</span></div>
@@ -47,12 +47,14 @@
     <button id="btn-pause" class="icon-btn hidden" title="השהיה">⏸</button>
 
     <div id="touch-controls" class="hidden">
-      <button id="t-left" class="t-btn">⬅️</button>
-      <div class="t-mid">
-        <button id="t-up" class="t-btn">⬆️</button>
-        <button id="t-down" class="t-btn">⬇️</button>
+      <div class="joystick" id="joy-steer">
+        <div class="joystick-base"><div class="joystick-knob"></div></div>
+        <span class="joystick-label">היגוי</span>
       </div>
-      <button id="t-right" class="t-btn">➡️</button>
+      <div class="joystick" id="joy-throttle">
+        <div class="joystick-base"><div class="joystick-knob"></div></div>
+        <span class="joystick-label">גז / בלם</span>
+      </div>
     </div>
   </div>
 

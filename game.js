@@ -4,8 +4,8 @@
   // ============================================================
   // Constants — pseudo-3D road projection (classic "outrun style")
   // ============================================================
-  const WIDTH = 1000;
-  const HEIGHT = 600;
+  const WIDTH = 1280;
+  const HEIGHT = 720;
   const FIELD_OF_VIEW = 100;
   const CAMERA_HEIGHT = 1000;
   const CAMERA_DEPTH = 1 / Math.tan((FIELD_OF_VIEW / 2) * Math.PI / 180);
@@ -100,6 +100,8 @@
   let hitCooldown = 0;
   let lastTime = null;
   let bestTime = loadBestTime();
+  let steerInput = 0;
+  let throttleInput = 0;
 
   const keys = { left: false, right: false, up: false, down: false };
 
@@ -435,9 +437,8 @@
       drawCarSprite(c.p.screen.x, c.p.screen.y, c.p.screen.scale * ROAD_WIDTH / 1400, c.color, c.wiggle);
     }
 
-    const steerDir = keys.left ? -1 : keys.right ? 1 : 0;
     const offRoad = Math.abs(playerX) > 1;
-    drawPlayerCar(steerDir, offRoad);
+    drawPlayerCar(steerInput, offRoad);
 
     if (hitFlash > 0) {
       ctx.fillStyle = `rgba(255,0,0,${Math.min(0.35, hitFlash)})`;
@@ -453,15 +454,18 @@
 
     const playerSegment = findSegment(position);
     const speedPercent = speed / MAX_SPEED;
-    const dx = dt * STEER_RATE * speedPercent;
+    const steerMag = dt * STEER_RATE * speedPercent;
 
-    if (keys.left) playerX -= dx;
-    if (keys.right) playerX += dx;
+    const keyboardSteer = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    const keyboardThrottle = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+    steerInput = clamp(keyboardSteer + steerJoystick.value, -1, 1);
+    throttleInput = clamp(keyboardThrottle + throttleJoystick.value, -1, 1);
 
-    playerX -= dx * speedPercent * playerSegment.curve * CENTRIFUGAL;
+    playerX += steerInput * steerMag;
+    playerX -= steerMag * playerSegment.curve * CENTRIFUGAL;
 
-    if (keys.up) speed += ACCEL * dt;
-    else if (keys.down) speed += BRAKE * dt;
+    if (throttleInput > 0) speed += ACCEL * dt * throttleInput;
+    else if (throttleInput < 0) speed += BRAKE * dt * -throttleInput;
     else speed += DECEL * dt;
 
     if ((playerX < -1 || playerX > 1) && speed > OFFROAD_LIMIT) {
@@ -639,20 +643,56 @@
     }
   });
 
-  function bindHold(el, key) {
-    const on = (e) => { e.preventDefault(); keys[key] = true; };
-    const off = (e) => { e.preventDefault(); keys[key] = false; };
-    el.addEventListener('touchstart', on, { passive: false });
-    el.addEventListener('touchend', off, { passive: false });
-    el.addEventListener('touchcancel', off, { passive: false });
-    el.addEventListener('mousedown', on);
-    el.addEventListener('mouseup', off);
-    el.addEventListener('mouseleave', off);
+  function makeJoystick(rootEl, axis) {
+    const base = rootEl.querySelector('.joystick-base');
+    const knob = rootEl.querySelector('.joystick-knob');
+    const maxR = (base.clientWidth - knob.clientWidth) / 2 || 33;
+    let pointerId = null;
+    let value = 0;
+
+    function setKnob(dx, dy, animated) {
+      knob.style.transition = animated ? 'transform 0.15s ease' : 'none';
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    }
+
+    function updateFromPoint(clientX, clientY) {
+      const rect = base.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxR) { dx = (dx / dist) * maxR; dy = (dy / dist) * maxR; }
+      setKnob(dx, dy, false);
+      value = clamp(axis === 'x' ? dx / maxR : -dy / maxR, -1, 1);
+    }
+
+    function release(e) {
+      if (pointerId === null || e.pointerId !== pointerId) return;
+      pointerId = null;
+      value = 0;
+      setKnob(0, 0, true);
+    }
+
+    base.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      pointerId = e.pointerId;
+      base.setPointerCapture(pointerId);
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    base.addEventListener('pointermove', (e) => {
+      if (pointerId === null || e.pointerId !== pointerId) return;
+      e.preventDefault();
+      updateFromPoint(e.clientX, e.clientY);
+    });
+    base.addEventListener('pointerup', release);
+    base.addEventListener('pointercancel', release);
+
+    return { get value() { return value; } };
   }
-  bindHold(document.getElementById('t-left'), 'left');
-  bindHold(document.getElementById('t-right'), 'right');
-  bindHold(document.getElementById('t-up'), 'up');
-  bindHold(document.getElementById('t-down'), 'down');
+
+  const steerJoystick = makeJoystick(document.getElementById('joy-steer'), 'x');
+  const throttleJoystick = makeJoystick(document.getElementById('joy-throttle'), 'y');
 
   if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
     touchControls.classList.remove('hidden');

@@ -19,9 +19,9 @@ body {
 
 #game-wrap {
   position: relative;
-  width: min(100%, 1000px, 166.667vh);
+  width: min(100%, 1280px, 177.778vh);
   margin: 0 auto;
-  aspect-ratio: 1000 / 600;
+  aspect-ratio: 16 / 9;
   background: #000;
   overflow: hidden;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
@@ -222,9 +222,9 @@ body {
 /* ---------- Touch controls ---------- */
 #touch-controls {
   position: absolute;
-  bottom: 14px;
-  left: 14px;
-  right: 14px;
+  bottom: 22px;
+  left: 22px;
+  right: 22px;
   display: flex;
   direction: ltr;
   justify-content: space-between;
@@ -236,25 +236,41 @@ body {
   display: none;
 }
 
-.t-mid {
+.joystick {
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
 }
 
-.t-btn {
-  pointer-events: auto;
-  width: 60px;
-  height: 60px;
+.joystick-base {
+  position: relative;
+  width: 116px;
+  height: 116px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 22px;
+  background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(2px);
-  user-select: none;
+  touch-action: none;
 }
 
-.t-btn:active {
-  background: rgba(255, 255, 255, 0.3);
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.joystick-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  user-select: none;
 }
