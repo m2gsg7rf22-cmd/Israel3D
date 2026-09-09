@@ -339,31 +339,68 @@
     ctx.translate(x, y + bump);
     ctx.rotate(toRad(tilt));
 
+    // ground shadow
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath();
     ctx.ellipse(0, 58, 78, 16, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const grad = ctx.createLinearGradient(0, -70, 0, 60);
-    grad.addColorStop(0, hitFlash > 0 ? '#ffffff' : '#ff5f5f');
-    grad.addColorStop(1, hitFlash > 0 ? '#dddddd' : '#a01c1c');
-    ctx.fillStyle = grad;
-    roundRect(-70, -30, 140, 90, 20);
-    ctx.fill();
-
-    ctx.fillStyle = '#151515';
+    // wheels (behind body) + red brake calipers
+    ctx.fillStyle = '#101010';
     ctx.fillRect(-84, -6, 20, 34);
     ctx.fillRect(64, -6, 20, 34);
     ctx.fillRect(-84, 34, 20, 34);
     ctx.fillRect(64, 34, 20, 34);
+    ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#e21c1c';
+    ctx.fillRect(-80, 36, 12, 10);
+    ctx.fillRect(68, 36, 12, 10);
 
-    ctx.fillStyle = 'rgba(20,26,38,0.9)';
-    roundRect(-46, -20, 92, 40, 14);
+    // body — gunmetal-grey sports coupe
+    const grad = ctx.createLinearGradient(0, -70, 0, 60);
+    grad.addColorStop(0, hitFlash > 0 ? '#ffffff' : '#5c6472');
+    grad.addColorStop(1, hitFlash > 0 ? '#dddddd' : '#22262e');
+    ctx.fillStyle = grad;
+    roundRect(-70, -30, 140, 90, 20);
     ctx.fill();
 
-    ctx.fillStyle = '#ffe98a';
-    ctx.fillRect(-64, 52, 22, 10);
-    ctx.fillRect(42, 52, 22, 10);
+    // rear wing (mounted on stalks above the deck)
+    ctx.fillStyle = hitFlash > 0 ? '#eeeeee' : '#14171d';
+    ctx.fillRect(-50, -42, 6, 14);
+    ctx.fillRect(44, -42, 6, 14);
+    roundRect(-58, -46, 116, 9, 3);
+    ctx.fill();
+
+    // rear window
+    ctx.fillStyle = 'rgba(20,26,38,0.9)';
+    roundRect(-46, -26, 92, 30, 14);
+    ctx.fill();
+
+    // Toyota-style center badge
+    ctx.strokeStyle = 'rgba(230,230,235,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 6, 8, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // angular LED taillight strips, sweeping in toward the badge
+    ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#ff2b2b';
+    ctx.beginPath();
+    ctx.moveTo(-62, 4); ctx.lineTo(-16, -2); ctx.lineTo(-16, 10); ctx.lineTo(-54, 22); ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(62, 4); ctx.lineTo(16, -2); ctx.lineTo(16, 10); ctx.lineTo(54, 22); ctx.closePath();
+    ctx.fill();
+
+    // lower diffuser with dual round exhaust tips
+    ctx.fillStyle = '#101318';
+    roundRect(-46, 42, 92, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = '#cfd4da';
+    ctx.beginPath(); ctx.arc(-24, 51, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(24, 51, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-24, 51, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(24, 51, 4, 0, Math.PI * 2); ctx.fill();
 
     ctx.restore();
   }
