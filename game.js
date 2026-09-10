@@ -274,8 +274,8 @@
   }
 
   function drawCarSprite(x, y, scale, color, wiggle) {
-    const w = clamp(160 * scale, 10, 240);
-    const h = w * 0.62;
+    const w = clamp(130 * scale, 10, 200);
+    const h = w * 0.9;
     const bob = Math.sin(elapsed * 6 + wiggle * 10) * (scale * 2);
     const cx = x;
     const cy = y - h * 0.5 - bob;
@@ -343,29 +343,29 @@
 
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath();
-    ctx.ellipse(0, 58, 78, 16, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 73, 62, 20, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const grad = ctx.createLinearGradient(0, -70, 0, 60);
+    const grad = ctx.createLinearGradient(0, -84, 0, 74);
     grad.addColorStop(0, hitFlash > 0 ? '#ffffff' : '#ff5f5f');
     grad.addColorStop(1, hitFlash > 0 ? '#dddddd' : '#a01c1c');
     ctx.fillStyle = grad;
-    roundRect(-70, -30, 140, 90, 20);
+    roundRect(-56, -38, 112, 112, 18);
     ctx.fill();
 
     ctx.fillStyle = '#151515';
-    ctx.fillRect(-84, -6, 20, 34);
-    ctx.fillRect(64, -6, 20, 34);
-    ctx.fillRect(-84, 34, 20, 34);
-    ctx.fillRect(64, 34, 20, 34);
+    ctx.fillRect(-67, -8, 16, 43);
+    ctx.fillRect(51, -8, 16, 43);
+    ctx.fillRect(-67, 43, 16, 43);
+    ctx.fillRect(51, 43, 16, 43);
 
     ctx.fillStyle = 'rgba(20,26,38,0.9)';
-    roundRect(-46, -20, 92, 40, 14);
+    roundRect(-37, -25, 74, 50, 14);
     ctx.fill();
 
     ctx.fillStyle = '#ffe98a';
-    ctx.fillRect(-64, 52, 22, 10);
-    ctx.fillRect(42, 52, 22, 10);
+    ctx.fillRect(-51, 65, 18, 13);
+    ctx.fillRect(34, 65, 18, 13);
 
     ctx.restore();
   }
