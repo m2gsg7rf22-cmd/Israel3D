@@ -23,6 +23,8 @@
   const OFFROAD_DECEL = -MAX_SPEED / 2.1;
   const OFFROAD_LIMIT = MAX_SPEED / 3.2;
   const CENTRIFUGAL = 0.17;
+  const TRACK_EDGE = 1.6; // guardrail past the grass run-off — beyond this is a wall hit, not just drag
+
   const STEER_RATE = 2.6;
 
   const COLORS = {
@@ -505,7 +507,18 @@
       speed += OFFROAD_DECEL * dt;
     }
 
-    playerX = clamp(playerX, -3, 3);
+    // track-edge guardrail: past the grass run-off is a real wall, not just
+    // extra drag — bounce the car back onto the track and register a hit,
+    // sharing the same flash/cooldown as traffic collisions
+    if ((playerX < -TRACK_EDGE || playerX > TRACK_EDGE) && hitCooldown <= 0) {
+      hits++;
+      speed *= 0.5;
+      hitFlash = 0.3;
+      hitCooldown = 0.5;
+      playerX = clamp(playerX, -TRACK_EDGE, TRACK_EDGE) * 0.9;
+    }
+
+    playerX = clamp(playerX, -TRACK_EDGE, TRACK_EDGE);
     speed = clamp(speed, 0, MAX_SPEED);
 
     // collisions with traffic near the player (guarded by a cooldown so a
