@@ -331,7 +331,7 @@
 
   function drawPlayerCar(steerDir, offRoad) {
     const x = WIDTH / 2 + steerDir * 26;
-    const y = HEIGHT - 46;
+    const y = HEIGHT - 64;
     const tilt = steerDir * 6;
     const bump = offRoad ? Math.sin(elapsed * 40) * 4 : 0;
 
@@ -342,65 +342,65 @@
     // ground shadow
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath();
-    ctx.ellipse(0, 58, 78, 16, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 75, 58, 21, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // wheels (behind body) + red brake calipers
     ctx.fillStyle = '#101010';
-    ctx.fillRect(-84, -6, 20, 34);
-    ctx.fillRect(64, -6, 20, 34);
-    ctx.fillRect(-84, 34, 20, 34);
-    ctx.fillRect(64, 34, 20, 34);
+    ctx.fillRect(-63, -8, 15, 44);
+    ctx.fillRect(48, -8, 15, 44);
+    ctx.fillRect(-63, 44, 15, 44);
+    ctx.fillRect(48, 44, 15, 44);
     ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#e21c1c';
-    ctx.fillRect(-80, 36, 12, 10);
-    ctx.fillRect(68, 36, 12, 10);
+    ctx.fillRect(-60, 47, 9, 13);
+    ctx.fillRect(51, 47, 9, 13);
 
-    // body — gunmetal-grey sports coupe
-    const grad = ctx.createLinearGradient(0, -70, 0, 60);
+    // body — narrow, tall hot-hatch silhouette
+    const grad = ctx.createLinearGradient(0, -90, 0, 78);
     grad.addColorStop(0, hitFlash > 0 ? '#ffffff' : '#5c6472');
     grad.addColorStop(1, hitFlash > 0 ? '#dddddd' : '#22262e');
     ctx.fillStyle = grad;
-    roundRect(-70, -30, 140, 90, 20);
+    roundRect(-53, -39, 105, 117, 15);
     ctx.fill();
 
     // rear wing (mounted on stalks above the deck)
     ctx.fillStyle = hitFlash > 0 ? '#eeeeee' : '#14171d';
-    ctx.fillRect(-50, -42, 6, 14);
-    ctx.fillRect(44, -42, 6, 14);
-    roundRect(-58, -46, 116, 9, 3);
+    ctx.fillRect(-38, -55, 5, 18);
+    ctx.fillRect(33, -55, 5, 18);
+    roundRect(-44, -60, 87, 12, 2);
     ctx.fill();
 
     // rear window
     ctx.fillStyle = 'rgba(20,26,38,0.9)';
-    roundRect(-46, -26, 92, 30, 14);
+    roundRect(-35, -34, 69, 39, 11);
     ctx.fill();
 
     // Toyota-style center badge
     ctx.strokeStyle = 'rgba(230,230,235,0.85)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(0, 12, 6, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 16, 5, 10, 0, 0, Math.PI * 2);
     ctx.stroke();
 
     // angular LED taillight strips, sweeping in toward the badge
     ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#ff2b2b';
     ctx.beginPath();
-    ctx.moveTo(-62, 4); ctx.lineTo(-16, -2); ctx.lineTo(-16, 10); ctx.lineTo(-54, 22); ctx.closePath();
+    ctx.moveTo(-47, 5); ctx.lineTo(-12, -3); ctx.lineTo(-12, 13); ctx.lineTo(-41, 29); ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(62, 4); ctx.lineTo(16, -2); ctx.lineTo(16, 10); ctx.lineTo(54, 22); ctx.closePath();
+    ctx.moveTo(47, 5); ctx.lineTo(12, -3); ctx.lineTo(12, 13); ctx.lineTo(41, 29); ctx.closePath();
     ctx.fill();
 
     // lower diffuser with dual round exhaust tips
     ctx.fillStyle = '#101318';
-    roundRect(-46, 42, 92, 18, 4);
+    roundRect(-35, 55, 69, 23, 3);
     ctx.fill();
     ctx.fillStyle = '#cfd4da';
-    ctx.beginPath(); ctx.arc(-24, 51, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(24, 51, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-18, 66, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(18, 66, 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.arc(-24, 51, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(24, 51, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-18, 66, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(18, 66, 3, 0, Math.PI * 2); ctx.fill();
 
     ctx.restore();
   }
