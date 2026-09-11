@@ -1,61 +1,14 @@
-<!DOCTYPE html>
-<html lang="he" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Israel3D — משחק מכוניות מרוץ</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <div id="game-wrap">
-    <canvas id="game" width="1000" height="600"></canvas>
-
-    <div id="hud">
-      <div class="hud-item"><span class="label">מהירות</span><span id="hud-speed">0</span><span class="unit">קמ״ש</span></div>
-      <div class="hud-item"><span class="label">הקפה</span><span id="hud-lap">1 / 3</span></div>
-      <div class="hud-item"><span class="label">זמן</span><span id="hud-time">00:00.000</span></div>
-      <div class="hud-item"><span class="label">שיא</span><span id="hud-best">--:--.---</span></div>
-    </div>
-
-    <div id="screen-start" class="screen">
-      <h1>🏁 Israel3D <span>מרוץ מכוניות</span></h1>
-      <p class="desc">דהרו על המסלול, השלימו 3 הקפות והתחמקו מהתנועה הנגדית.<br>ככל שתסטו לשוליים — תאבדו מהירות!</p>
-      <div class="controls-info">
-        <div><strong>⬅️➡️ / A D</strong><span>היגוי</span></div>
-        <div><strong>⬆️ / W</strong><span>האצה</span></div>
-        <div><strong>⬇️ / S</strong><span>בלימה</span></div>
-      </div>
-      <button id="btn-start" class="btn">התחל מרוץ</button>
-    </div>
-
-    <div id="screen-pause" class="screen hidden">
-      <h1>⏸ השהיה</h1>
-      <button id="btn-resume" class="btn">המשך</button>
-      <button id="btn-restart-pause" class="btn btn-secondary">התחל מחדש</button>
-    </div>
-
-    <div id="screen-gameover" class="screen hidden">
-      <h1 id="go-title">🏆 סיימת את המרוץ!</h1>
-      <div class="results">
-        <div><span class="label">זמן סופי</span><span id="go-time">00:00.000</span></div>
-        <div><span class="label">שיא אישי</span><span id="go-best">00:00.000</span></div>
-        <div><span class="label">התנגשויות</span><span id="go-hits">0</span></div>
-      </div>
-      <button id="btn-restart" class="btn">מרוץ נוסף</button>
-    </div>
-
-    <button id="btn-pause" class="icon-btn hidden" title="השהיה">⏸</button>
-
-    <div id="touch-controls" class="hidden">
-      <button id="t-left" class="t-btn">⬅️</button>
-      <div class="t-mid">
-        <button id="t-up" class="t-btn">⬆️</button>
-        <button id="t-down" class="t-btn">⬇️</button>
-      </div>
-      <button id="t-right" class="t-btn">➡️</button>
-    </div>
-  </div>
-
-<script src="game.js"></script>
-</body>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#050810" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a1230'/%3E%3Ccircle cx='50' cy='50' r='34' fill='%2338bdf8'/%3E%3C/svg%3E" />
+    <title>Port Spider-Azure</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
