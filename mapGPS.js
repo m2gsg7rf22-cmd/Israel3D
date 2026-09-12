@@ -1,11 +1,88 @@
-// Fullscreen map & GPS pathfinder. Draws the building footprints and mission
-// markers on a 2D canvas and lets the player tap anywhere to drop a waypoint;
-// game.js then tracks straight-line bearing/distance to it every frame via
-// its own gps-hud widget. This is straight-line GPS, not turn-by-turn A*
-// routing -- the city is a regular street grid, so a bearing arrow is enough
-// to get someone there, and building real road-graph pathfinding was out of
-// scope for this pass.
+// Fullscreen map & GPS pathfinder. The street grid is perfectly regular
+// (intersections every BLOCK meters), so instead of a straight-line bearing
+// we build a real road graph -- one node per intersection, edges along the
+// streets connecting them -- and run A* over it. Tapping the map computes a
+// turn-by-turn route from the player's nearest intersection to the tapped
+// point; game.js walks the returned waypoint list one hop at a time via its
+// gps-hud arrow, advancing to the next hop on arrival.
 let canvas_, ctx_, world_, getters_, onWaypoint_;
+let graph_ = null;
+
+function buildRoadGraph(cityHalf, block) {
+  const coords = [];
+  for (let v = -cityHalf; v <= cityHalf + 0.01; v += block) coords.push(Math.round(v));
+  const nodes = [];
+  const index = new Map();
+  for (const x of coords) {
+    for (const z of coords) {
+      index.set(`${x},${z}`, nodes.length);
+      nodes.push({ x, z, neighbors: [] });
+    }
+  }
+  for (const x of coords) {
+    for (const z of coords) {
+      const id = index.get(`${x},${z}`);
+      const right = index.get(`${x + block},${z}`);
+      const down = index.get(`${x},${z + block}`);
+      if (right !== undefined) { nodes[id].neighbors.push(right); nodes[right].neighbors.push(id); }
+      if (down !== undefined) { nodes[id].neighbors.push(down); nodes[down].neighbors.push(id); }
+    }
+  }
+  return { nodes, index, block, cityHalf };
+}
+
+function nearestNode(graph, x, z) {
+  const clamp = (v) => Math.max(-graph.cityHalf, Math.min(graph.cityHalf, v));
+  const nx = Math.round(clamp(x) / graph.block) * graph.block;
+  const nz = Math.round(clamp(z) / graph.block) * graph.block;
+  return graph.index.get(`${nx},${nz}`);
+}
+
+function aStar(graph, startId, goalId) {
+  const { nodes } = graph;
+  if (startId === undefined || goalId === undefined) return null;
+  const goal = nodes[goalId];
+  const h = (id) => Math.abs(nodes[id].x - goal.x) + Math.abs(nodes[id].z - goal.z);
+  const open = new Set([startId]);
+  const cameFrom = new Map();
+  const gScore = new Map([[startId, 0]]);
+  const fScore = new Map([[startId, h(startId)]]);
+  while (open.size) {
+    let current = null, bestF = Infinity;
+    for (const id of open) { const f = fScore.get(id) ?? Infinity; if (f < bestF) { bestF = f; current = id; } }
+    if (current === goalId) {
+      const path = [current];
+      while (cameFrom.has(current)) { current = cameFrom.get(current); path.unshift(current); }
+      return path.map((id) => ({ x: nodes[id].x, z: nodes[id].z }));
+    }
+    open.delete(current);
+    for (const nb of nodes[current].neighbors) {
+      const tentative = gScore.get(current) + graph.block;
+      if (tentative < (gScore.get(nb) ?? Infinity)) {
+        cameFrom.set(nb, current);
+        gScore.set(nb, tentative);
+        fScore.set(nb, tentative + h(nb));
+        open.add(nb);
+      }
+    }
+  }
+  return null;
+}
+
+// returns an ordered list of {x,z} hops from the player's current position to
+// the exact destination point, or null if no route exists (shouldn't happen
+// on a fully-connected grid, but a disconnected/blocked graph could produce one)
+export function computeRoute(playerX, playerZ, destX, destZ) {
+  if (!graph_) return null;
+  const startId = nearestNode(graph_, playerX, playerZ);
+  const goalId = nearestNode(graph_, destX, destZ);
+  const path = aStar(graph_, startId, goalId);
+  if (!path) return null;
+  path.shift(); // player is already essentially at the start node
+  const last = path[path.length - 1];
+  if (!last || Math.hypot(last.x - destX, last.z - destZ) > 1) path.push({ x: destX, z: destZ });
+  return path.length ? path : [{ x: destX, z: destZ }];
+}
 
 export function initMapGPS(panelEl, world, getters, onWaypoint) {
   canvas_ = panelEl.querySelector('#map-canvas');
@@ -13,6 +90,7 @@ export function initMapGPS(panelEl, world, getters, onWaypoint) {
   world_ = world;
   getters_ = getters;
   onWaypoint_ = onWaypoint;
+  graph_ = buildRoadGraph(world.cityHalf, world.block);
 
   canvas_.addEventListener('pointerdown', (e) => {
     const rect = canvas_.getBoundingClientRect();
@@ -20,7 +98,9 @@ export function initMapGPS(panelEl, world, getters, onWaypoint) {
     const py = (e.clientY - rect.top) / rect.height;
     const x = px * world_.citySize - world_.cityHalf;
     const z = py * world_.citySize - world_.cityHalf;
-    onWaypoint_(x, z);
+    const player = getters_.getPlayer();
+    const path = computeRoute(player.x, player.z, x, z);
+    onWaypoint_(path, { x, z });
   });
 }
 
@@ -28,6 +108,7 @@ export function renderMapGPS() {
   if (!ctx_) return;
   const w = canvas_.width, h = canvas_.height;
   const scale = w / world_.citySize;
+  const toPx = (x, z) => ({ x: (x + world_.cityHalf) * scale, z: (z + world_.cityHalf) * scale });
 
   ctx_.fillStyle = '#141a26';
   ctx_.fillRect(0, 0, w, h);
@@ -36,34 +117,43 @@ export function renderMapGPS() {
   ctx_.strokeStyle = 'rgba(255,255,255,0.16)';
   ctx_.lineWidth = 1;
   for (const b of world_.buildingAABBs) {
-    const bx = (b.minX + world_.cityHalf) * scale, bz = (b.minZ + world_.cityHalf) * scale;
-    const bw = (b.maxX - b.minX) * scale, bh = (b.maxZ - b.minZ) * scale;
-    ctx_.fillRect(bx, bz, bw, bh);
-    ctx_.strokeRect(bx, bz, bw, bh);
+    const p1 = toPx(b.minX, b.minZ);
+    ctx_.fillRect(p1.x, p1.z, (b.maxX - b.minX) * scale, (b.maxZ - b.minZ) * scale);
+    ctx_.strokeRect(p1.x, p1.z, (b.maxX - b.minX) * scale, (b.maxZ - b.minZ) * scale);
   }
 
   for (const m of getters_.getMarkers()) {
+    const p = toPx(m.x, m.z);
     ctx_.fillStyle = m.kind === 'taxi' ? '#43c6ff' : '#ffd23f';
     ctx_.beginPath();
-    ctx_.arc((m.x + world_.cityHalf) * scale, (m.z + world_.cityHalf) * scale, 5, 0, Math.PI * 2);
+    ctx_.arc(p.x, p.z, 5, 0, Math.PI * 2);
     ctx_.fill();
   }
 
-  const wp = getters_.getWaypoint();
-  if (wp) {
+  const path = getters_.getPath ? getters_.getPath() : null;
+  if (path && path.length) {
+    const player = getters_.getPlayer();
     ctx_.strokeStyle = '#ff5f5f';
-    ctx_.lineWidth = 2;
+    ctx_.lineWidth = 2.5;
     ctx_.beginPath();
-    ctx_.arc((wp.x + world_.cityHalf) * scale, (wp.z + world_.cityHalf) * scale, 9, 0, Math.PI * 2);
+    const p0 = toPx(player.x, player.z);
+    ctx_.moveTo(p0.x, p0.z);
+    for (const wp of path) { const p = toPx(wp.x, wp.z); ctx_.lineTo(p.x, p.z); }
+    ctx_.stroke();
+    const dest = toPx(path[path.length - 1].x, path[path.length - 1].z);
+    ctx_.strokeStyle = '#ff5f5f';
+    ctx_.beginPath();
+    ctx_.arc(dest.x, dest.z, 9, 0, Math.PI * 2);
     ctx_.stroke();
   }
 
   const foot = getters_.getPlayer();
+  const pf = toPx(foot.x, foot.z);
   ctx_.fillStyle = '#66bce5';
   ctx_.strokeStyle = '#fff';
   ctx_.lineWidth = 1.5;
   ctx_.beginPath();
-  ctx_.arc((foot.x + world_.cityHalf) * scale, (foot.z + world_.cityHalf) * scale, 6, 0, Math.PI * 2);
+  ctx_.arc(pf.x, pf.z, 6, 0, Math.PI * 2);
   ctx_.fill();
   ctx_.stroke();
 }

@@ -14,7 +14,7 @@ import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './v
 import { buildCharacter, applyLocomotionSwing, seatOnMoto, unseatFromMoto } from './characterRig.js';
 import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } from './cameraRig.js';
 import { initGarage } from './garage.js';
-import { initMapGPS, renderMapGPS } from './mapGPS.js';
+import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation } from './safehouse.js';
@@ -173,7 +173,7 @@ initMissions(scene, THREE);
 const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const motoState = { x: -6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const foot = { x: 0, z: 20, yaw: Math.PI, y: 0, vy: 0, speed: 0, grounded: true, phase: 0 };
-let gpsWaypoint = null;
+let gpsPath = null; // ordered list of {x,z} road-graph hops to the tapped destination
 
 let mode = 'foot';
 let dayTime = 0.4;
@@ -244,7 +244,7 @@ function updateFoot(dt) {
   if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; }
 
   foot.phase += dt * (2.2 + Math.abs(foot.speed) * 1.15);
-  applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_RUN);
+  applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_RUN, dt);
 }
 
 function showMessage(text) {
@@ -417,25 +417,32 @@ function updateMissionHud(missionInfo, playerState) {
 }
 
 // ============================================================
-// GPS waypoint HUD (set from the fullscreen map, tracked every frame)
+// GPS waypoint HUD (route computed by mapGPS.js's A* over the street grid,
+// tracked one hop at a time every frame)
 // ============================================================
 function updateGpsHud(playerState) {
-  if (!gpsWaypoint) { gpsHud.classList.add('hidden'); return; }
-  const dx = gpsWaypoint.x - playerState.x, dz = gpsWaypoint.z - playerState.z;
-  const dist = Math.hypot(dx, dz);
+  if (!gpsPath || gpsPath.length === 0) { gpsHud.classList.add('hidden'); return; }
+  let hop = gpsPath[0];
+  let dist = Math.hypot(hop.x - playerState.x, hop.z - playerState.z);
   if (dist < 8) {
-    gpsWaypoint = null;
-    gpsHud.classList.add('hidden');
-    showMessage('הגעת ליעד הניווט!');
-    return;
+    gpsPath.shift();
+    if (gpsPath.length === 0) {
+      gpsPath = null;
+      gpsHud.classList.add('hidden');
+      showMessage('הגעת ליעד הניווט!');
+      return;
+    }
+    hop = gpsPath[0];
+    dist = Math.hypot(hop.x - playerState.x, hop.z - playerState.z);
   }
   gpsHud.classList.remove('hidden');
-  const bearing = Math.atan2(dx, dz);
+  const bearing = Math.atan2(hop.x - playerState.x, hop.z - playerState.z);
   const rel = bearing - (playerState.yaw || 0) - Math.PI / 2;
   gpsArrow.style.transform = `rotate(${rel}rad)`;
-  gpsDist.textContent = Math.round(dist) + 'm';
+  const remaining = gpsPath.length - 1;
+  gpsDist.textContent = Math.round(dist) + 'm' + (remaining > 0 ? ` (+${remaining})` : '');
 }
-gpsCancel.addEventListener('click', () => { gpsWaypoint = null; gpsHud.classList.add('hidden'); });
+gpsCancel.addEventListener('click', () => { gpsPath = null; gpsHud.classList.add('hidden'); });
 
 // ============================================================
 // Left-side menu: garage / map / mod shop / home / settings / wardrobe
@@ -468,15 +475,21 @@ function repairVehicle(which) {
 }
 initGarage(panelGarage, { teleportToVehicle, repairVehicle });
 
-initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, buildingAABBs }, {
+initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, block: BLOCK, buildingAABBs }, {
   getMarkers,
-  getWaypoint: () => gpsWaypoint,
+  getPath: () => gpsPath,
   getPlayer: () => (mode === 'foot' ? foot : (mode === 'car' ? carState : motoState)),
-}, (x, z) => {
-  gpsWaypoint = { x, z };
+}, (path, dest) => {
+  if (!path) { showMessage('לא נמצא מסלול ליעד'); return; }
+  gpsPath = path;
   closeAllPanels();
-  showMessage('יעד ניווט הוגדר');
+  showMessage(gpsPath.length > 1 ? `מסלול חושב — ${gpsPath.length - 1} צמתים בדרך` : 'יעד ניווט הוגדר');
 });
+window.__testSetGpsRoute = (destX, destZ) => {
+  const player = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  gpsPath = computeRoute(player.x, player.z, destX, destZ);
+  return window.__debug();
+};
 
 initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge });
 
@@ -748,10 +761,17 @@ window.__debug = () => ({
   flashing: isFlashing(),
   missionScore: lastMissionInfo.score,
   missionWaypoint: lastMissionInfo.waypoint,
+  gpsPath: gpsPath ? gpsPath.map((p) => ({ x: p.x, z: p.z })) : null,
   markers: getMarkers(),
   ramps: getRamps(),
   nightFactor,
   camera: getCameraZoomDebug(),
+  characterModel: {
+    customModelLoaded: !!character.customModel,
+    hasMixer: !!character.mixer,
+    actionNames: Object.keys(character.actions),
+    activeActionIsPlaying: character.activeAction ? character.activeAction.isRunning() : null,
+  },
 });
 window.__setFootPos = (x, z, yaw = 0) => { foot.x = x; foot.z = z; foot.yaw = yaw; foot.speed = 0; return window.__debug(); };
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
