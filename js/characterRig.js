@@ -35,45 +35,86 @@ const ANIM_NAME_PATTERNS = {
   run: ['run', 'sprint'],
 };
 
+// The player's default look is deliberately not drawn from pedestrians.js's
+// palettes (SHIRT_COLORS/PANTS_COLORS there) -- a hero racing red + near-
+// black plus a gold accent stripe (matching the game's own HUD gold) so the
+// player never coincidentally matches a random NPC's outfit.
+const HERO_SHIRT = '#d62828';
+const HERO_PANTS = '#12161c';
+const HERO_ACCENT = '#ffd23f';
+
 export function buildCharacter(THREE, scene) {
   const group = new THREE.Group();
   const skin = new THREE.MeshStandardMaterial({ color: '#e0b28e', roughness: 0.8 });
-  const shirt = new THREE.MeshStandardMaterial({ color: '#2f5fa8', roughness: 0.8 });
-  const pants = new THREE.MeshStandardMaterial({ color: '#33384a', roughness: 0.85 });
+  const shirt = new THREE.MeshStandardMaterial({ color: HERO_SHIRT, roughness: 0.75 });
+  const pants = new THREE.MeshStandardMaterial({ color: HERO_PANTS, roughness: 0.85 });
+  const accent = new THREE.MeshStandardMaterial({ color: HERO_ACCENT, roughness: 0.5, emissive: HERO_ACCENT, emissiveIntensity: 0.15 });
+  const hair = new THREE.MeshStandardMaterial({ color: '#241a12', roughness: 0.7 });
 
   const hips = new THREE.Group();
-  hips.position.y = 0.9;
+  hips.position.y = 0.88;
   group.add(hips);
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.24), shirt);
-  torso.position.y = 0.34;
+  // torso built from a main box plus a slim center racing stripe -- more
+  // silhouette detail than the pedestrian crowd's single flat-color box,
+  // and the stripe alone makes the player readable at a glance in a crowd
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.56, 0.25), shirt);
+  torso.position.y = 0.35;
   torso.castShadow = true;
   hips.add(torso);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.56, 0.02), accent);
+  stripe.position.set(0, 0.35, 0.135);
+  hips.add(stripe);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), skin);
-  head.position.y = 0.72;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.08, 8), skin);
+  neck.position.y = 0.65;
+  hips.add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), skin);
+  head.position.y = 0.75;
   head.castShadow = true;
   hips.add(head);
+  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.165, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), hair);
+  hairCap.position.y = 0.80;
+  hips.add(hairCap);
 
-  function makeLimb(mat, len, x, side) {
+  // two-segment limbs (upper + lower with an elbow/knee pivot) -- more
+  // articulation than the crowd's single rigid box per limb, which both
+  // reads as visually distinct and lets locomotion bend at the joint
+  function makeSegmentedLimb(mat, upperLen, lowerLen, thickness, x, jointY, cuffAccent) {
     const pivot = new THREE.Group();
-    pivot.position.set(x, side === 'leg' ? 0 : 0.58, 0);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.14, len, 0.14), mat);
-    mesh.position.y = -len / 2;
-    mesh.castShadow = true;
-    pivot.add(mesh);
-    hips.add(pivot);
-    return pivot;
+    pivot.position.set(x, jointY, 0);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(thickness, upperLen, thickness), mat);
+    upper.position.y = -upperLen / 2;
+    upper.castShadow = true;
+    pivot.add(upper);
+
+    const joint = new THREE.Group();
+    joint.position.y = -upperLen;
+    pivot.add(joint);
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(thickness * 0.92, lowerLen, thickness * 0.92), mat);
+    lower.position.y = -lowerLen / 2;
+    lower.castShadow = true;
+    joint.add(lower);
+    if (cuffAccent) {
+      const cuff = new THREE.Mesh(new THREE.BoxGeometry(thickness * 0.98, 0.04, thickness * 0.98), accent);
+      cuff.position.y = -lowerLen + 0.02;
+      joint.add(cuff);
+    }
+    return { pivot, joint, upper, lower };
   }
-  const legL = makeLimb(pants, 0.85, -0.11, 'leg');
-  const legR = makeLimb(pants, 0.85, 0.11, 'leg');
-  const armL = makeLimb(shirt, 0.6, -0.28, 'arm');
-  const armR = makeLimb(shirt, 0.6, 0.28, 'arm');
+
+  const leg = { L: makeSegmentedLimb(pants, 0.42, 0.42, 0.15, -0.11, 0, true), R: makeSegmentedLimb(pants, 0.42, 0.42, 0.15, 0.11, 0, true) };
+  const arm = { L: makeSegmentedLimb(shirt, 0.32, 0.3, 0.13, -0.29, 0.58, false), R: makeSegmentedLimb(shirt, 0.32, 0.3, 0.13, 0.29, 0.58, false) };
+  hips.add(leg.L.pivot, leg.R.pivot, arm.L.pivot, arm.R.pivot);
 
   scene.add(group);
   const rig = {
-    group, hips, legL, legR, armL, armR, shirtMat: shirt, pantsMat: pants,
-    proceduralMeshes: [torso, head, ...[legL, legR, armL, armR].map((p) => p.children[0])],
+    group, hips,
+    legL: leg.L.pivot, legR: leg.R.pivot, armL: arm.L.pivot, armR: arm.R.pivot,
+    kneeL: leg.L.joint, kneeR: leg.R.joint, elbowL: arm.L.joint, elbowR: arm.R.joint,
+    torso, shirtMat: shirt, pantsMat: pants,
+    proceduralMeshes: [torso, stripe, neck, head, hairCap, leg.L.upper, leg.L.lower, leg.R.upper, leg.R.lower, arm.L.upper, arm.L.lower, arm.R.upper, arm.R.lower],
     customModel: null, mixer: null, actions: {}, activeAction: null,
   };
   loadCustomPlayerModel(THREE, rig);
@@ -150,13 +191,32 @@ export function applyLocomotionSwing(character, phase, speed, walkSpeed, runSpee
     character.mixer.update(dt);
     return;
   }
-  const speedFactor = Math.max(0, Math.min(Math.abs(speed) / runSpeed, 1.35));
+  // procedural fallback: phase already advances faster at higher speed (see
+  // game.js's updateFoot), so a swing driven purely by phase keeps stride
+  // cadence tied to pace -- this is the mechanism that keeps feet from
+  // visibly sliding without needing full inverse-kinematics foot planting.
+  const absSpeed = Math.abs(speed);
+  const speedFactor = Math.max(0, Math.min(absSpeed / runSpeed, 1.35));
   const swing = Math.sin(phase) * 0.55 * speedFactor;
   character.legL.rotation.x = swing;
   character.legR.rotation.x = -swing;
   character.armL.rotation.x = -swing * 0.8;
   character.armR.rotation.x = swing * 0.8;
+  // knees/elbows bend on the forward half of each stride, straighten on the
+  // back half -- a flat sine would let the leg pass through the ground
+  character.kneeL.rotation.x = Math.max(0, Math.sin(phase)) * 0.9 * speedFactor;
+  character.kneeR.rotation.x = Math.max(0, -Math.sin(phase)) * 0.9 * speedFactor;
+  character.elbowL.rotation.x = Math.max(0, Math.sin(phase + Math.PI)) * 0.5 * speedFactor;
+  character.elbowR.rotation.x = Math.max(0, Math.sin(phase)) * 0.5 * speedFactor;
+
+  // breathing: a slow, small chest rise even at a standstill, plus a
+  // forward torso lean that grows with speed to sell momentum
+  const breathe = Math.sin(phase * 0.18 + 1.7) * 0.012 * (1 - Math.min(speedFactor, 1));
+  character.torso.scale.y = 1 + breathe;
+  character.hips.rotation.x = damp(character.hips.rotation.x, speedFactor * 0.12, 6, dt);
+  character.hips.position.y = 0.88 + Math.abs(Math.sin(phase)) * 0.015 * speedFactor;
 }
+function damp(a, b, lambda, dt) { return a + (b - a) * (1 - Math.exp(-lambda * dt)); }
 
 // reparents the rig onto the motorcycle's seat socket with a seated pose.
 // Note: the seated pose is procedural-rig-specific (it poses legL/legR/
@@ -168,10 +228,15 @@ export function seatOnMoto(scene, character, motoGroup) {
   motoGroup.add(character.group);
   character.group.position.set(0, 0.21, -0.35);
   character.group.rotation.set(0, 0, 0);
-  character.legL.rotation.x = -1.35;
-  character.legR.rotation.x = -1.35;
+  character.legL.rotation.x = -0.9;
+  character.legR.rotation.x = -0.9;
+  character.kneeL.rotation.x = 1.4;
+  character.kneeR.rotation.x = 1.4;
   character.armL.rotation.x = -0.35;
   character.armR.rotation.x = -0.35;
+  character.elbowL.rotation.x = 0.5;
+  character.elbowR.rotation.x = 0.5;
+  character.hips.rotation.x = 0;
 }
 
 export function unseatFromMoto(scene, character, motoGroup, footYaw) {
@@ -180,6 +245,10 @@ export function unseatFromMoto(scene, character, motoGroup, footYaw) {
   character.group.rotation.set(0, footYaw, 0);
   character.legL.rotation.x = 0;
   character.legR.rotation.x = 0;
+  character.kneeL.rotation.x = 0;
+  character.kneeR.rotation.x = 0;
   character.armL.rotation.x = 0;
   character.armR.rotation.x = 0;
+  character.elbowL.rotation.x = 0;
+  character.elbowR.rotation.x = 0;
 }

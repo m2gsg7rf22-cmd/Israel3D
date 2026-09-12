@@ -162,7 +162,7 @@ const character = buildCharacter(THREE, scene);
 // ============================================================
 // Pedestrians
 // ============================================================
-spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 32 });
+spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 48 });
 initPolice(scene, THREE);
 initProps(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED });
 initMissions(scene, THREE);

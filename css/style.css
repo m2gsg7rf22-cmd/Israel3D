@@ -9,13 +9,22 @@ html, body {
   font-family: "Segoe UI", Tahoma, Arial, sans-serif;
   overflow: hidden;
   touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-inline: 16px;
+  /* physical left/right on purpose: the document is dir="rtl", and the
+     logical padding-inline-start/end would swap sides relative to these
+     physical env() safe-area values, padding the wrong edge on a notched
+     phone */
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
 }
 
 #game-wrap {

@@ -3,10 +3,10 @@ let scene_;
 const peds = [];
 const parts = {};
 
-const SKIN_TONES = ['#e0b28e', '#c68863', '#8d5524', '#f1c27d', '#5c3a21', '#a9744f'];
-const SHIRT_COLORS = ['#2f5fa8', '#b5442e', '#3f8f5f', '#c9a227', '#6a4c93', '#3a3f47', '#d1d1d1', '#8a3b5e'];
-const PANTS_COLORS = ['#33384a', '#5b4636', '#2b2b2b', '#4a5568', '#6b6b6b'];
-const HAIR_COLORS = ['#1c1410', '#3b2a1a', '#6b4a2a', '#c9a876', '#0e0e0e', '#8a8a8a'];
+const SKIN_TONES = ['#e0b28e', '#c68863', '#8d5524', '#f1c27d', '#5c3a21', '#a9744f', '#ffdbb0', '#7a4a2e'];
+const SHIRT_COLORS = ['#2f5fa8', '#b5442e', '#3f8f5f', '#c9a227', '#6a4c93', '#3a3f47', '#d1d1d1', '#8a3b5e', '#ff7f2a', '#2e9e8f', '#5c6bc0', '#7d8471'];
+const PANTS_COLORS = ['#33384a', '#5b4636', '#2b2b2b', '#4a5568', '#6b6b6b', '#3c4a3a', '#5a3d5c'];
+const HAIR_COLORS = ['#1c1410', '#3b2a1a', '#6b4a2a', '#c9a876', '#0e0e0e', '#8a8a8a', '#d94f4f', '#e8e8e8'];
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -61,7 +61,7 @@ export function spawnPedestrians(scene, THREE, opts) {
   _localScale = new THREE.Vector3();
   _tmpColor = new THREE.Color();
 
-  const { grid, block, lot, seed = 1234, count = 32 } = opts;
+  const { grid, block, lot, seed = 1234, count = 48 } = opts;
 
   parts.torso = makePartMesh(new THREE.BoxGeometry(0.4, 0.55, 0.22), count);
   parts.head = makePartMesh(new THREE.SphereGeometry(0.15, 10, 8), count);
@@ -98,7 +98,7 @@ export function spawnPedestrians(scene, THREE, opts) {
   const walkPaths = loops.filter(Boolean);
 
   const idleAnchors = [];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 7; i++) {
     const b = candidateBlocks[Math.floor(rng() * candidateBlocks.length)];
     const c = blockCenter(b.bx, b.bz, grid, block);
     const ang = rng() * Math.PI * 2;
@@ -116,7 +116,8 @@ export function spawnPedestrians(scene, THREE, opts) {
       hair: pick(rng, HAIR_COLORS),
       hasHat: rng() < 0.22,
       hasBackpack: rng() < 0.3,
-      heightScale: 0.94 + rng() * 0.14,
+      heightScale: 0.9 + rng() * 0.22,
+      widthScale: 0.85 + rng() * 0.32,
       walkSpeed: 1.1 + rng() * 0.5,
       fleeSpeed: 3.6 + rng() * 0.8,
       phase: rng() * Math.PI * 2,
@@ -155,7 +156,7 @@ function composeRoot(ped) {
   _rootPos.set(ped.x, 0, ped.z);
   _rootEuler.set(ped.tilt, ped.yaw, 0, 'YXZ');
   _q.setFromEuler(_rootEuler);
-  _rootScale.setScalar(ped.heightScale);
+  _rootScale.set(ped.widthScale, ped.heightScale, ped.widthScale);
   _root.compose(_rootPos, _q, _rootScale);
 }
 
