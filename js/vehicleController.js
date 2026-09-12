@@ -72,6 +72,11 @@ function loadCarModel(THREE, rig) {
     (gltf) => {
       for (const mesh of rig.proceduralMeshes) mesh.visible = false;
       const model = gltf.scene;
+      // this glTF's authored front faces -Z, but the game's own forward
+      // convention is +Z at yaw=0 (same mismatch fixed for the player model
+      // in characterRig.js) -- without this, pressing forward visually
+      // drives the car backward, nose-first away from the direction of travel
+      model.rotation.y = Math.PI;
       model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       rig.group.add(model);
 
