@@ -15,7 +15,7 @@
 // (pedestrians.js) and police (police.js) each build their own separate
 // procedural meshes in their own files and never call into this module, so
 // swapping the player's visual here cannot affect them.
-import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
+import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 
 // Drop your exported model at this path (relative to index.html) to replace
 // the procedural player mesh. A single self-contained .glb (glTF Binary) is
@@ -25,7 +25,7 @@ import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 // first; the FBX loader was left out on purpose to keep this vendored
 // dependency small (it otherwise drags in a compression lib and a spline
 // module this project doesn't use anywhere else).
-const PLAYER_MODEL_PATH = './assets/models/player.glb';
+const PLAYER_MODEL_PATH = '../assets/models/player.glb';
 const PLAYER_MODEL_SCALE = 1;   // tweak if your export isn't in meters
 const PLAYER_MODEL_Y_OFFSET = 0; // tweak if the model's origin isn't at its feet
 
@@ -120,21 +120,34 @@ function loadCustomPlayerModel(THREE, rig) {
   );
 }
 
-// crossfades between matched animation clips on the loaded custom model, or
-// falls back to the original procedural limb-swing math when no custom
-// model (or no matching clips) is active
-export function applyLocomotionSwing(character, phase, speed, runSpeed, dt = 0) {
+const CROSSFADE_DURATION = 0.2;
+function clampTimeScale(v) { return Math.max(0.5, Math.min(v, 1.8)); }
+
+// crossfades between matched animation clips on the loaded custom model
+// (true crossFadeTo blending, not an instant weight swap), with playback
+// rate synced to actual movement speed so a walk/run cycle authored at one
+// reference pace doesn't visibly foot-slide when the character is moving
+// faster or slower than that pace. Falls back to the original procedural
+// limb-swing math when no custom model (or no matching clips) is loaded.
+export function applyLocomotionSwing(character, phase, speed, walkSpeed, runSpeed, dt = 0) {
   if (character.mixer) {
-    character.mixer.update(dt);
     const absSpeed = Math.abs(speed);
     const key = absSpeed > runSpeed * 0.75 ? 'run' : absSpeed > 0.15 ? 'walk' : 'idle';
     const next = character.actions[key];
     if (next && character.activeAction !== next) {
-      const FADE = 0.25;
-      if (character.activeAction) character.activeAction.setEffectiveWeight(0);
-      next.reset().setEffectiveWeight(1).play();
+      next.enabled = true;
+      next.setEffectiveTimeScale(1);
+      next.setEffectiveWeight(1);
+      next.time = 0;
+      if (character.activeAction) character.activeAction.crossFadeTo(next, CROSSFADE_DURATION, true);
+      else next.play();
       character.activeAction = next;
     }
+    if (character.activeAction) {
+      const refSpeed = key === 'run' ? runSpeed : key === 'walk' ? walkSpeed : 1;
+      character.activeAction.setEffectiveTimeScale(key === 'idle' ? 1 : clampTimeScale(absSpeed / refSpeed));
+    }
+    character.mixer.update(dt);
     return;
   }
   const speedFactor = Math.max(0, Math.min(Math.abs(speed) / runSpeed, 1.35));

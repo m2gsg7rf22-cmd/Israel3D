@@ -552,6 +552,7 @@ body {
   transition: opacity 0.12s ease;
   pointer-events: auto;
   touch-action: none;
+  z-index: 99999;
 }
 
 .joystick.active {

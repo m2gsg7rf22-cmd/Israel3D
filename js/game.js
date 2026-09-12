@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { EffectComposer } from './vendor/postprocessing/EffectComposer.js';
-import { RenderPass } from './vendor/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from './vendor/postprocessing/OutputPass.js';
+import { EffectComposer } from '../vendor/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '../vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
 import { initAudio, playPunch, setMuted } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
@@ -139,10 +139,10 @@ dirLight.castShadow = true;
 dirLight.shadow.mapSize.set(2048, 2048);
 dirLight.shadow.camera.near = 1;
 dirLight.shadow.camera.far = 260;
-dirLight.shadow.camera.left = -70;
-dirLight.shadow.camera.right = 70;
-dirLight.shadow.camera.top = 70;
-dirLight.shadow.camera.bottom = -70;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
 dirLight.shadow.bias = -0.0003;
 scene.add(dirLight);
 scene.add(dirLight.target);
@@ -244,7 +244,7 @@ function updateFoot(dt) {
   if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; }
 
   foot.phase += dt * (2.2 + Math.abs(foot.speed) * 1.15);
-  applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_RUN, dt);
+  applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_WALK, FOOT_RUN, dt);
 }
 
 function showMessage(text) {
@@ -315,8 +315,9 @@ function updateDayNight(dt) {
   else n = 0;
 
   const sunAngle = dayTime * Math.PI * 2;
-  dirLight.position.set(camera.position.x + Math.cos(sunAngle) * 60, Math.max(6, Math.sin(sunAngle) * 60 + 20), camera.position.z + 30);
-  dirLight.target.position.set(camera.position.x, 0, camera.position.z);
+  const playerState = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  dirLight.position.set(playerState.x + Math.cos(sunAngle) * 60, Math.max(6, Math.sin(sunAngle) * 60 + 20), playerState.z + 30);
+  dirLight.target.position.set(playerState.x, 0, playerState.z);
   dirLight.intensity = damp(dirLight.intensity, 1.6 - n * 1.3, 3, dt);
   hemiLight.intensity = damp(hemiLight.intensity, 0.9 - n * 0.55, 3, dt);
 
@@ -699,8 +700,14 @@ function resetJoy() {
   joystickKnob.style.transform = 'translate(0px, 0px)';
   joystickEl.classList.remove('active');
 }
+// stopPropagation here is redundant with setPointerCapture below (capture
+// already redirects every subsequent event for this pointerId straight to
+// joystickEl, so the canvas's own camera-orbit listener never sees it even
+// without this) -- kept anyway as an explicit, defense-in-depth guarantee
+// that joystick input can never bleed into camera orbit or the side menu.
 joystickEl.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   joystickEl.setPointerCapture(e.pointerId);
   joy.pointerId = e.pointerId;
   joy.active = true;
@@ -709,10 +716,11 @@ joystickEl.addEventListener('pointerdown', (e) => {
 });
 joystickEl.addEventListener('pointermove', (e) => {
   if (joy.pointerId !== e.pointerId) return;
+  e.stopPropagation();
   updateJoyFromEvent(e);
 });
-joystickEl.addEventListener('pointerup', (e) => { if (joy.pointerId === e.pointerId) resetJoy(); });
-joystickEl.addEventListener('pointercancel', (e) => { if (joy.pointerId === e.pointerId) resetJoy(); });
+joystickEl.addEventListener('pointerup', (e) => { if (joy.pointerId === e.pointerId) { e.stopPropagation(); resetJoy(); } });
+joystickEl.addEventListener('pointercancel', (e) => { if (joy.pointerId === e.pointerId) { e.stopPropagation(); resetJoy(); } });
 document.getElementById('t-action').addEventListener('touchstart', (e) => { e.preventDefault(); fEdge = true; }, { passive: false });
 document.getElementById('t-action').addEventListener('click', () => { fEdge = true; });
 document.getElementById('t-jump').addEventListener('touchstart', (e) => { e.preventDefault(); if (!keys.space) spaceEdge = true; }, { passive: false });

@@ -3,8 +3,8 @@ import * as THREE from 'three';
 const ZOOM_MIN = 1.8;
 const ZOOM_MAX = 14.0;
 const ZOOM_DEFAULT = 7.2;
-const PITCH_MIN = -0.25;
-const PITCH_MAX = 0.75;
+const PITCH_MIN = 0.05;  // never lets the camera dip to/below eye-height, so it can't clip under the ground plane
+const PITCH_MAX = 1.35;  // near-overhead, true-orbit-style freedom without reaching gimbal-lock at pi/2
 const ORBIT_YAW_SENS = 0.0065;   // rad per pixel of single-finger drag
 const ORBIT_PITCH_SENS = 0.0045;
 const ZOOM_LERP_RATE = 6;        // per-second damp rate, smooths pinch jerk
