@@ -16,6 +16,7 @@ import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } fro
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier } from './dealership.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
@@ -104,6 +105,8 @@ const panelRace = document.getElementById('panel-race');
 const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings, panelRace];
 const shopBadge = document.getElementById('shop-badge');
 
+const boostHud = document.getElementById('boost-hud');
+const boostFill = document.getElementById('boost-fill');
 const missionPrompt = document.getElementById('mission-prompt');
 const missionPromptText = document.getElementById('mission-prompt-text');
 const raceHud = document.getElementById('race-hud');
@@ -621,6 +624,13 @@ function updateHud(dt) {
   hudSpeed.textContent = state ? Math.round(Math.abs(state.speed) * 3.6) : Math.round(Math.abs(foot.speed) * 3.6);
   hudMode.textContent = MODE_LABEL[mode];
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) hudMsg.classList.remove('visible'); }
+
+  boostHud.classList.toggle('hidden', !state);
+  if (state) {
+    const pct = Math.round(state.boostMeter ?? 100);
+    boostFill.style.width = pct + '%';
+    boostFill.classList.toggle('depleted', pct <= 0);
+  }
 }
 
 function updateWantedHud() {
@@ -720,7 +730,8 @@ window.__testSetGpsRoute = (destX, destZ) => {
   return window.__debug();
 };
 
-initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge });
+initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge, getCarTierMultiplier: getActiveTierCostMultiplier });
+initDealership(panelGarage, { carRig: car, carParams: CAR_PARAMS, spendCash });
 
 initCharacterCustomizer(panelCustomizer, { shirtMat: character.shirtMat, pantsMat: character.pantsMat });
 
@@ -799,7 +810,7 @@ try {
   applyPoliceDifficulty(savedDiff || getPoliceDifficulty());
 } catch (e) { /* private mode -- default difficulty stays normal */ }
 
-document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); panelGarage.classList.remove('hidden'); });
+document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });
@@ -1243,6 +1254,7 @@ resize();
 composer.render();
 window.__gameBooted = true;
 window.__renderer = renderer;
+window.__testAddCash = (amount) => { addCash(amount); return getScore(); };
 window.__lightCount = () => {
   let n = 0;
   scene.traverse((o) => { if (o.isLight) n++; });

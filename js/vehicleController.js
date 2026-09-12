@@ -181,10 +181,21 @@ export function updateVehicle(state, dt, params, ctx) {
   // directly, so a joystick nudged only slightly still produced full-deflection
   // steering/throttle with nothing in between, which read as jerky on mobile
   const { steer, throttle } = steerThrottle();
-  const nitro = keys.shift && throttle > 0;
-  state.boosting = nitro;
-  const boostMul = nitro ? 1.55 : 1;
-  const maxV = params.maxV * (nitro ? 1.25 : 1);
+  // boost meter: 0-100, drains while boosting and regenerates otherwise --
+  // the boost upgrade level (0-6, from the mod shop) slows the drain and
+  // speeds up the regen rather than changing the multiplier itself, so a
+  // maxed-out boost category means "boost almost all the time" rather than
+  // a bigger one-off speed spike
+  if (state.boostMeter === undefined) state.boostMeter = 100;
+  const boostLevel = params.boostLevel || 0;
+  const wantBoost = keys.shift && throttle > 0;
+  const canBoost = wantBoost && state.boostMeter > 0;
+  state.boosting = canBoost;
+  const boostMul = canBoost ? 1.55 : 1;
+  const maxV = params.maxV * (canBoost ? 1.25 : 1);
+  const boostDrainRate = 26 - boostLevel * 2.5;
+  const boostRegenRate = 10 + boostLevel * 4;
+  state.boostMeter = clamp(state.boostMeter + (canBoost ? -boostDrainRate : boostRegenRate) * dt, 0, 100);
 
   if (keys.space && throttle > 0 && Math.abs(state.speed) < 3) {
     const rx = state.x - Math.sin(state.yaw) * 1.4, rz = state.z - Math.cos(state.yaw) * 1.4;

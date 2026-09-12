@@ -124,6 +124,40 @@ body {
   unicode-bidi: isolate;
 }
 
+/* ---------- Boost meter ---------- */
+#boost-hud {
+  position: absolute;
+  right: 12px;
+  bottom: 130px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(8, 11, 18, 0.55);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(67, 198, 255, 0.35);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #43c6ff;
+  z-index: 5;
+}
+#boost-hud.hidden { display: none; }
+#boost-bar {
+  width: 90px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+#boost-fill {
+  height: 100%;
+  width: 100%;
+  background: #43c6ff;
+  transition: width 0.1s linear;
+}
+#boost-fill.depleted { background: #555; }
+
 /* ---------- Wanted stars ---------- */
 #hud-wanted {
   direction: ltr;
@@ -608,6 +642,57 @@ body {
 }
 
 .preset-btn:active { border-color: #fff; }
+
+.dealer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dealer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 210, 63, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.dealer-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.dealer-info { flex: 1; min-width: 0; }
+
+.dealer-name {
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffd23f;
+}
+
+.dealer-stats {
+  font-size: 10px;
+  color: #9aa4b3;
+  margin-top: 2px;
+}
+
+.dealer-btn {
+  background: rgba(63, 110, 255, 0.35);
+  border: 1px solid rgba(63, 110, 255, 0.6);
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .panel-card-map {
   width: min(92%, 480px);
