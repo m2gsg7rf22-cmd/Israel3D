@@ -108,7 +108,7 @@ const joystickKnob = document.getElementById('joystick-knob');
 // Renderer / scene / camera
 // ============================================================
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setPixelRatio(1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -136,7 +136,7 @@ const hemiLight = new THREE.HemisphereLight('#c8dcf0', '#2c2f36', 0.9);
 scene.add(hemiLight);
 const dirLight = new THREE.DirectionalLight('#fff3d6', 1.6);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.mapSize.set(512, 512);
 dirLight.shadow.camera.near = 1;
 dirLight.shadow.camera.far = 260;
 dirLight.shadow.camera.left = -50;
@@ -224,7 +224,7 @@ function resolveCircleVsBuildings(state, radius) {
 
 // context passed into the extracted vehicleController.updateVehicle() so it
 // can reach world collision/lamp logic that still lives in this module
-const vehicleCtx = { keys, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
+const vehicleCtx = { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
 
 function updateFoot(dt) {
   const { steer, throttle } = steerThrottle();
@@ -784,6 +784,7 @@ window.__debug = () => ({
 window.__setFootPos = (x, z, yaw = 0) => { foot.x = x; foot.z = z; foot.yaw = yaw; foot.speed = 0; return window.__debug(); };
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
 window.__setKeys = (patch) => Object.assign(keys, patch);
+window.__setJoy = (x, y, active) => { joy.x = x; joy.y = y; joy.active = active; };
 window.__pressF = () => { fEdge = true; };
 window.__pressSpace = () => { spaceEdge = true; };
 window.__pressPunch = () => { punchEdge = true; };

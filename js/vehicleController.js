@@ -115,10 +115,13 @@ export function buildMoto(THREE, scene) {
 // returns { launchedRamp } so the caller (game.js) can trigger its own
 // slow-motion timer without this module reaching back into the render loop
 export function updateVehicle(state, dt, params, ctx) {
-  const { keys, resolveCircleVsBuildings, hitLampPoles, gravity } = ctx;
+  const { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity } = ctx;
   const yawBefore = state.yaw;
-  const steer = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
-  const throttle = keys.up ? 1 : keys.down ? -1 : 0;
+  // analog steer/throttle straight from the joystick (falls back to digital
+  // -1/0/1 from the keyboard) -- previously this read keys.left/right/up/down
+  // directly, so a joystick nudged only slightly still produced full-deflection
+  // steering/throttle with nothing in between, which read as jerky on mobile
+  const { steer, throttle } = steerThrottle();
   const nitro = keys.shift && throttle > 0;
   state.boosting = nitro;
   const boostMul = nitro ? 1.55 : 1;
