@@ -62,6 +62,8 @@ const btnResume = document.getElementById('btn-resume');
 const btnRestartPause = document.getElementById('btn-restart-pause');
 const btnPause = document.getElementById('btn-pause');
 const touchControls = document.getElementById('touch-controls');
+const joystickEl = document.getElementById('joystick');
+const joystickKnob = document.getElementById('joystick-knob');
 
 // ============================================================
 // Renderer / scene / camera
@@ -438,6 +440,12 @@ let lastTime = null;
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false };
 let fEdge = false, spaceEdge = false;
+const joy = { x: 0, y: 0, active: false, pointerId: null };
+
+function steerThrottle() {
+  if (joy.active) return { steer: clamp(-joy.x, -1, 1), throttle: clamp(-joy.y, -1, 1) };
+  return { steer: (keys.left ? 1 : 0) - (keys.right ? 1 : 0), throttle: keys.up ? 1 : keys.down ? -1 : 0 };
+}
 
 // ============================================================
 // Collision
@@ -470,16 +478,15 @@ function resolveCircleVsBuildings(state, radius) {
 // Vehicle physics
 // ============================================================
 function updateVehicle(state, dt, params) {
-  const throttle = keys.up ? 1 : keys.down ? -1 : 0;
+  const { steer, throttle } = steerThrottle();
   let accel = 0;
-  if (throttle > 0) accel = params.accel * (1 - Math.max(state.speed, 0) / params.maxV);
-  else if (throttle < 0) accel = state.speed > 1 ? params.brake : -10 * (1 + state.speed / 14);
+  if (throttle > 0) accel = params.accel * (1 - Math.max(state.speed, 0) / params.maxV) * throttle;
+  else if (throttle < 0) accel = (state.speed > 1 ? params.brake : -10 * (1 + state.speed / 14)) * -throttle;
   state.speed += accel * dt;
   state.speed -= params.drag * state.speed * dt;
   if (throttle === 0) state.speed *= (1 - 0.18 * dt);
   state.speed = clamp(state.speed, -params.maxV * 0.4, params.maxV);
 
-  const steer = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
   const speedFrac = Math.min(Math.abs(state.speed) / params.turnDenom, 1);
   state.yaw += steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed) * speedFrac * Math.sign(state.speed || 1) * dt;
   state.x += Math.sin(state.yaw) * state.speed * dt;
@@ -490,10 +497,9 @@ function updateVehicle(state, dt, params) {
 }
 
 function updateFoot(dt) {
-  if (keys.left) foot.yaw += FOOT_TURN_RATE * dt;
-  if (keys.right) foot.yaw -= FOOT_TURN_RATE * dt;
-  const throttle = keys.up ? 1 : keys.down ? -1 : 0;
-  const targetSpeed = throttle === 0 ? 0 : (keys.shift ? FOOT_SPRINT : FOOT_RUN) * throttle;
+  const { steer, throttle } = steerThrottle();
+  foot.yaw += steer * FOOT_TURN_RATE * dt;
+  const targetSpeed = (keys.shift ? FOOT_SPRINT : FOOT_RUN) * throttle;
   foot.speed = damp(foot.speed, targetSpeed, 13, dt);
   foot.x += Math.sin(foot.yaw) * foot.speed * dt;
   foot.z += Math.cos(foot.yaw) * foot.speed * dt;
@@ -760,7 +766,10 @@ window.addEventListener('keydown', (e) => {
   setKey(e.key, true);
 });
 window.addEventListener('keyup', (e) => setKey(e.key, false));
-window.addEventListener('blur', () => { keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = false; });
+window.addEventListener('blur', () => {
+  keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = false;
+  resetJoy();
+});
 
 function bindHold(el, fn) {
   const on = (e) => { e.preventDefault(); fn(true); };
@@ -772,11 +781,38 @@ function bindHold(el, fn) {
   el.addEventListener('mouseup', off);
   el.addEventListener('mouseleave', off);
 }
-bindHold(document.getElementById('t-left'), (v) => keys.left = v);
-bindHold(document.getElementById('t-right'), (v) => keys.right = v);
-bindHold(document.getElementById('t-up'), (v) => keys.up = v);
-bindHold(document.getElementById('t-down'), (v) => keys.down = v);
 bindHold(document.getElementById('t-run'), (v) => keys.shift = v);
+
+const JOY_RADIUS = 46;
+function updateJoyFromEvent(e) {
+  const rect = joystickEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  let dx = e.clientX - cx;
+  let dy = e.clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > JOY_RADIUS) { dx = (dx / dist) * JOY_RADIUS; dy = (dy / dist) * JOY_RADIUS; }
+  joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  joy.x = dx / JOY_RADIUS;
+  joy.y = dy / JOY_RADIUS;
+}
+function resetJoy() {
+  joy.x = 0; joy.y = 0; joy.active = false; joy.pointerId = null;
+  joystickKnob.style.transform = 'translate(0px, 0px)';
+}
+joystickEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  joystickEl.setPointerCapture(e.pointerId);
+  joy.pointerId = e.pointerId;
+  joy.active = true;
+  updateJoyFromEvent(e);
+});
+joystickEl.addEventListener('pointermove', (e) => {
+  if (joy.pointerId !== e.pointerId) return;
+  updateJoyFromEvent(e);
+});
+joystickEl.addEventListener('pointerup', (e) => { if (joy.pointerId === e.pointerId) resetJoy(); });
+joystickEl.addEventListener('pointercancel', (e) => { if (joy.pointerId === e.pointerId) resetJoy(); });
 document.getElementById('t-action').addEventListener('touchstart', (e) => { e.preventDefault(); fEdge = true; }, { passive: false });
 document.getElementById('t-action').addEventListener('click', () => { fEdge = true; });
 document.getElementById('t-jump').addEventListener('touchstart', (e) => { e.preventDefault(); if (!keys.space) spaceEdge = true; }, { passive: false });

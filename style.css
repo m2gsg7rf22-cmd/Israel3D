@@ -42,6 +42,7 @@ body {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   pointer-events: none;
+  z-index: 5;
 }
 
 #hud-msg {
@@ -59,6 +60,7 @@ body {
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
+  z-index: 5;
 }
 
 #hud-msg.visible {
@@ -77,6 +79,7 @@ body {
   pointer-events: none;
   font-weight: bold;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+  z-index: 5;
 }
 
 .hud-item {
@@ -127,6 +130,7 @@ body {
   gap: 14px;
   padding: 20px;
   transition: opacity 0.2s ease;
+  z-index: 20;
 }
 
 .screen.hidden {
@@ -215,60 +219,99 @@ body {
   border-radius: 8px;
   padding: 6px 12px;
   cursor: pointer;
+  z-index: 15;
 }
 
 .icon-btn.hidden {
   display: none;
 }
 
-/* ---------- Touch controls ---------- */
+/* ---------- Touch controls (battle-royale style: joystick + action cluster) ---------- */
 #touch-controls {
   position: absolute;
-  bottom: 14px;
-  left: 14px;
-  right: 14px;
-  display: flex;
+  inset: 0;
   direction: ltr;
-  justify-content: space-between;
-  align-items: flex-end;
   pointer-events: none;
+  z-index: 10;
 }
 
 #touch-controls.hidden {
   display: none;
 }
 
-.t-mid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.t-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.t-btn {
-  pointer-events: auto;
-  width: 60px;
-  height: 60px;
+.joystick {
+  position: absolute;
+  left: 26px;
+  bottom: 26px;
+  width: 118px;
+  height: 118px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  margin-top: -26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+}
+
+.br-actions {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  width: 190px;
+  height: 175px;
+  pointer-events: none;
+}
+
+.br-btn {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.14);
   color: #fff;
-  font-size: 22px;
-  backdrop-filter: blur(2px);
+  font-weight: bold;
   user-select: none;
+  backdrop-filter: blur(2px);
 }
 
-.t-btn-small {
-  width: 46px;
-  height: 46px;
-  font-size: 16px;
+.br-btn:active {
+  background: rgba(255, 255, 255, 0.32);
 }
 
-.t-btn:active {
-  background: rgba(255, 255, 255, 0.3);
+.br-btn-jump {
+  width: 86px;
+  height: 86px;
+  font-size: 28px;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 95, 95, 0.28);
+}
+
+.br-btn-run {
+  width: 62px;
+  height: 62px;
+  font-size: 20px;
+  right: 96px;
+  bottom: 14px;
+}
+
+.br-btn-action {
+  width: 56px;
+  height: 56px;
+  font-size: 17px;
+  right: 34px;
+  bottom: 104px;
 }
