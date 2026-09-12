@@ -3,11 +3,15 @@ import { EffectComposer } from './vendor/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/postprocessing/OutputPass.js';
-import { spawnPedestrians, updatePedestrians, punchNear, vehicleHitPedestrians, getPedestrians } from './pedestrians.js';
-import { initAudio, playPunch, playImpact } from './audio.js';
+import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
+import { initAudio, playPunch } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
-import { initProps, vehicleHitProps, scrapeSparks, updateProps, getProps, spawnDebrisBurst, spawnSmoke } from './props.js';
-import { initMissions, updateMissions, checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd, getMarkers, getRamps } from './missions.js';
+import { initProps, updateProps, getProps } from './props.js';
+import { initMissions, updateMissions, getMarkers, getRamps } from './missions.js';
+import { initCityArchitecture } from './cityArchitecture.js';
+import { initNature } from './natureEngine.js';
+import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
+import { buildCharacter, applyLocomotionSwing, seatOnMoto, unseatFromMoto } from './characterRig.js';
 
 // ============================================================
 // Constants
@@ -22,8 +26,6 @@ const CITY_SEED = 88213;
 
 const DAY_CYCLE_SECONDS = 180;
 
-const CAR_PARAMS = { accel: 20, maxV: 32, brake: -32, steerBase: 0.5, steerSpeed: 0.6, turnDenom: 7, drag: 0.11, radius: 2.3 };
-const MOTO_PARAMS = { accel: 26, maxV: 24, brake: -30, steerBase: 0.62, steerSpeed: 0.75, turnDenom: 5, drag: 0.14, radius: 1.1 };
 const FOOT_WALK = 1.4, FOOT_RUN = 3.6, FOOT_SPRINT = 5.5, FOOT_TURN_RATE = 2.6;
 const JUMP_V = 5.3, GRAVITY = 15.5;
 const ENTER_RANGE = 3.6, MAX_EXIT_SPEED = 4.2;
@@ -123,464 +125,16 @@ scene.add(dirLight);
 scene.add(dirLight.target);
 
 // ============================================================
-// Ground / street texture
+// City, nature, vehicles, character
 // ============================================================
-function buildCityTexture() {
-  const px = 2048;
-  const scale = px / CITY_SIZE;
-  const cnv = document.createElement('canvas');
-  cnv.width = px; cnv.height = px;
-  const g = cnv.getContext('2d');
-  g.fillStyle = '#3a3d42';
-  g.fillRect(0, 0, px, px);
+const cityOpts = { grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED, skipBlocks: [{ bx: 4, bz: 4 }] };
+const cityArch = initCityArchitecture(scene, THREE, cityOpts);
+const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles } = cityArch;
+initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
-  // asphalt grain
-  const grainRng = mulberry32(CITY_SEED + 42);
-  g.fillStyle = 'rgba(255,255,255,0.04)';
-  for (let i = 0; i < 6000; i++) {
-    const gx = grainRng() * px, gz = grainRng() * px, gs = 1 + grainRng() * 2;
-    g.fillRect(gx, gz, gs, gs);
-  }
-
-  const rng = mulberry32(CITY_SEED + 999);
-  for (let bx = 0; bx < GRID; bx++) {
-    for (let bz = 0; bz < GRID; bz++) {
-      const cx = (bx - GRID / 2 + 0.5) * BLOCK;
-      const cz = (bz - GRID / 2 + 0.5) * BLOCK;
-      const district = districtOf(bx, bz);
-      const sx = (cx + CITY_HALF - LOT / 2) * scale;
-      const sz = (cz + CITY_HALF - LOT / 2) * scale;
-      const sw = LOT * scale;
-      // curb: a thin concrete-grey border just outside the lot, under the building line
-      g.fillStyle = '#9a9a92';
-      g.fillRect(sx - 2, sz - 2, sw + 4, sw + 4);
-      g.fillStyle = district.lotColor;
-      g.fillRect(sx, sz, sw, sw);
-    }
-  }
-
-  g.strokeStyle = 'rgba(255,255,255,0.35)';
-  g.lineWidth = Math.max(2, 0.14 * scale);
-  g.setLineDash([1.8 * scale, 1.8 * scale]);
-  for (let bx = 0; bx <= GRID; bx++) {
-    const x = (bx * BLOCK) * scale;
-    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, px); g.stroke();
-  }
-  for (let bz = 0; bz <= GRID; bz++) {
-    const z = (bz * BLOCK) * scale;
-    g.beginPath(); g.moveTo(0, z); g.lineTo(px, z); g.stroke();
-  }
-  g.setLineDash([]);
-
-  // crosswalks: zebra stripes on the four approaches to a subset of intersections
-  g.fillStyle = 'rgba(255,255,255,0.55)';
-  const crossW = (STREET_W - 2) * scale;
-  const stripeLen = 0.6 * scale, stripeGap = 0.5 * scale, stripeThick = 0.35 * scale;
-  const setback = STREET_W / 2 * scale + 1 * scale;
-  for (let bx = 1; bx < GRID; bx += 2) {
-    for (let bz = 1; bz < GRID; bz += 2) {
-      const ix = bx * BLOCK * scale, iz = bz * BLOCK * scale;
-      // vertical-street approaches (crossing drawn horizontally) at north/south of intersection
-      for (const dz of [-setback, setback]) {
-        for (let s = -crossW / 2; s < crossW / 2; s += stripeLen + stripeGap) {
-          g.fillRect(ix + s, iz + dz - stripeThick / 2, stripeLen, stripeThick);
-        }
-      }
-      // horizontal-street approaches (crossing drawn vertically) at east/west of intersection
-      for (const dx of [-setback, setback]) {
-        for (let s = -crossW / 2; s < crossW / 2; s += stripeLen + stripeGap) {
-          g.fillRect(ix + dx - stripeThick / 2, iz + s, stripeThick, stripeLen);
-        }
-      }
-    }
-  }
-
-  const tex = new THREE.CanvasTexture(cnv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-const DISTRICTS = {
-  downtown: { name: 'Downtown Core', lotColor: '#8a8f96', bodyColor: '#4b6785', shop: 0.25, floors: [8, 18], hillside: false },
-  harbor: { name: 'Harbor Row', lotColor: '#7d9098', bodyColor: '#3f7d82', shop: 0.55, floors: [2, 5], hillside: false },
-  oldquarter: { name: 'Old Quarter', lotColor: '#9c8a72', bodyColor: '#8a5a44', shop: 0.6, floors: [3, 6], hillside: false },
-  hillside: { name: 'Hillside Heights', lotColor: '#4f8f52', bodyColor: '#c9b896', shop: 0.05, floors: [1, 2], hillside: true },
-};
-function districtOf(bx, bz) {
-  const half = GRID / 2;
-  if (bx < half && bz < half) return DISTRICTS.downtown;
-  if (bx >= half && bz < half) return DISTRICTS.harbor;
-  if (bx < half && bz >= half) return DISTRICTS.oldquarter;
-  return DISTRICTS.hillside;
-}
-
-const groundGeo = new THREE.PlaneGeometry(CITY_SIZE, CITY_SIZE);
-groundGeo.rotateX(-Math.PI / 2);
-const groundMat = new THREE.MeshStandardMaterial({ map: buildCityTexture(), roughness: 0.95, metalness: 0.02 });
-const ground = new THREE.Mesh(groundGeo, groundMat);
-ground.receiveShadow = true;
-scene.add(ground);
-
-// ============================================================
-// Buildings
-// ============================================================
-function buildWindowTexture(color, night) {
-  const cnv = document.createElement('canvas');
-  cnv.width = 64; cnv.height = 96;
-  const g = cnv.getContext('2d');
-  g.fillStyle = color;
-  g.fillRect(0, 0, 64, 96);
-  g.fillStyle = night;
-  for (let y = 6; y < 96; y += 14) {
-    for (let x = 4; x < 64; x += 12) {
-      g.fillRect(x, y, 6, 8);
-    }
-  }
-  const tex = new THREE.CanvasTexture(cnv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex;
-}
-
-const buildingMaterials = {};
-function materialFor(district, floors) {
-  const key = district.name;
-  if (!buildingMaterials[key]) {
-    const tex = buildWindowTexture(district.bodyColor, '#ffdb8a');
-    tex.repeat.set(2, Math.max(1, floors));
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, metalness: 0.1, emissive: '#ffb35c', emissiveMap: tex, emissiveIntensity: 0 });
-    buildingMaterials[key] = mat;
-  }
-  return buildingMaterials[key];
-}
-
-const unitBox = new THREE.BoxGeometry(1, 1, 1);
-const buildingAABBs = []; // { minX, maxX, minZ, maxZ }
-const shopSigns = [];
-const landmarks = [];
-const SHOP_NAMES = ['Blue Fig Cafe', 'Meridian Books', 'Harbor Market', 'The Rivet', 'Old Quarter Deli', 'Salt & Pine', 'Quay Flowers', 'Northline Music', "Cassie's Diner", 'Bay Cycles'];
-
-function addBuilding(bx, bz, overrides) {
-  const district = districtOf(bx, bz);
-  const cx = (bx - GRID / 2 + 0.5) * BLOCK;
-  const cz = (bz - GRID / 2 + 0.5) * BLOCK;
-  const rng = mulberry32(CITY_SEED + bx * 1000 + bz * 7 + 3);
-
-  if (!overrides && rng() < 0.08) return; // open plaza / park
-
-  const floors = overrides?.floors ?? Math.round(district.floors[0] + rng() * (district.floors[1] - district.floors[0]));
-  const floorH = district.hillside ? 2.9 : 3.25;
-  const height = floors * floorH;
-  const w = LOT * (0.6 + rng() * 0.32);
-  const d = LOT * (0.6 + rng() * 0.32);
-
-  const group = new THREE.Group();
-  group.position.set(cx, 0, cz);
-
-  const body = new THREE.Mesh(unitBox, materialFor(district, floors));
-  body.scale.set(w, height, d);
-  body.position.y = height / 2;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  group.add(body);
-
-  if (district.hillside) {
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, floorH * 1.1, 4), new THREE.MeshStandardMaterial({ color: '#7a4a3a', roughness: 0.9 }));
-    roof.rotation.y = Math.PI / 4;
-    roof.position.y = height + floorH * 0.45;
-    roof.castShadow = true;
-    group.add(roof);
-  }
-
-  const isShop = overrides?.shop ?? (rng() < district.shop);
-  if (isShop) {
-    const awning = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.35, 1.4), new THREE.MeshStandardMaterial({ color: '#c94f4f', roughness: 0.7 }));
-    awning.position.set(0, floorH * 0.78, d / 2 + 0.6);
-    awning.castShadow = true;
-    group.add(awning);
-
-    const name = SHOP_NAMES[Math.floor(rng() * SHOP_NAMES.length)];
-    const signCnv = document.createElement('canvas');
-    signCnv.width = 256; signCnv.height = 64;
-    const sg = signCnv.getContext('2d');
-    sg.fillStyle = '#12141a'; sg.fillRect(0, 0, 256, 64);
-    sg.fillStyle = '#ffce94'; sg.font = 'bold 28px Arial'; sg.textAlign = 'center'; sg.textBaseline = 'middle';
-    sg.fillText(name, 128, 34);
-    const signTex = new THREE.CanvasTexture(signCnv);
-    signTex.colorSpace = THREE.SRGBColorSpace;
-    const signMat = new THREE.MeshStandardMaterial({ map: signTex, emissive: '#ffce94', emissiveMap: signTex, emissiveIntensity: 0 });
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.85, 0.9), signMat);
-    sign.position.set(0, floorH * 0.55, d / 2 + 0.05);
-    group.add(sign);
-    shopSigns.push(signMat);
-
-    const lamp = new THREE.PointLight('#ffce94', 0, 8);
-    lamp.position.set(0, 2.2, d / 2 + 1.2);
-    group.add(lamp);
-    nightLights.push(lamp);
-  }
-
-  scene.add(group);
-  buildingAABBs.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, bx, bz });
-}
-
-const nightLights = [];
-
-for (let bx = 0; bx < GRID; bx++) {
-  for (let bz = 0; bz < GRID; bz++) {
-    addBuilding(bx, bz);
-  }
-}
-
-// two landmarks so navigation has recognizable anchors
-addBuilding(2, 2, { floors: 26, shop: false });
-{
-  const tower = buildingAABBs[buildingAABBs.length - 1];
-  const beacon = new THREE.PointLight('#ff5050', 0, 20);
-  beacon.position.set((tower.minX + tower.maxX) / 2, 26 * 3.25 + 1.5, (tower.minZ + tower.maxZ) / 2);
-  scene.add(beacon);
-  nightLights.push(beacon);
-}
-addBuilding(9, 2, { floors: 4, shop: true });
-
-// street lamps at a subset of intersections (hit-reactive: tip over + fade when rammed)
-const lampGeo = new THREE.CylinderGeometry(0.08, 0.08, 8, 6);
-const lampMat = new THREE.MeshStandardMaterial({ color: '#333' });
-const bulbGeo = new THREE.SphereGeometry(0.18, 8, 8);
-const lampPoles = [];
-for (let bx = 1; bx < GRID; bx += 2) {
-  for (let bz = 1; bz < GRID; bz += 2) {
-    const x = bx * BLOCK - CITY_HALF;
-    const z = bz * BLOCK - CITY_HALF;
-    const poleGroup = new THREE.Group();
-    poleGroup.position.set(x, 0, z);
-    const pole = new THREE.Mesh(lampGeo, lampMat);
-    pole.position.set(0, 4, 0);
-    pole.castShadow = true;
-    poleGroup.add(pole);
-    const bulbMat = new THREE.MeshStandardMaterial({ color: '#fff0d6', emissive: '#fff0d6', emissiveIntensity: 0 });
-    const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-    bulb.position.set(0, 8, 0);
-    poleGroup.add(bulb);
-    scene.add(poleGroup);
-    const light = new THREE.PointLight('#fff0d6', 0, 22, 2);
-    light.position.set(x, 7.6, z);
-    scene.add(light);
-    nightLights.push(light);
-    shopSigns.push(bulbMat);
-    lampPoles.push({ x, z, group: poleGroup, light, broken: false, alive: true, tilt: 0, fadeTimer: 0 });
-  }
-}
-
-// ============================================================
-// Procedural street trees
-// ============================================================
-{
-  const treeRng = mulberry32(CITY_SEED + 7777);
-  const candidates = [];
-  for (let bx = 0; bx < GRID; bx++) {
-    for (let bz = 0; bz < GRID; bz++) {
-      if (treeRng() < 0.55) candidates.push({ bx, bz });
-    }
-  }
-  const trunkGeo = new THREE.CylinderGeometry(0.13, 0.18, 2.2, 6);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#5a4130', roughness: 0.95 });
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, candidates.length);
-  trunks.castShadow = true;
-  scene.add(trunks);
-
-  const foliageGeo = new THREE.SphereGeometry(1, 7, 6);
-  const foliageMat = new THREE.MeshStandardMaterial({ color: '#3f7a3a', roughness: 0.9 });
-  const foliageLayers = 3;
-  const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, candidates.length * foliageLayers);
-  foliage.castShadow = true;
-  scene.add(foliage);
-
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const posV = new THREE.Vector3();
-  const scaleV = new THREE.Vector3();
-  const r = LOT / 2 + 3.0;
-  let foliageIdx = 0;
-  candidates.forEach((b, i) => {
-    const c = { x: (b.bx - GRID / 2 + 0.5) * BLOCK, z: (b.bz - GRID / 2 + 0.5) * BLOCK };
-    const corner = Math.floor(treeRng() * 4);
-    const cx = c.x + (corner % 2 === 0 ? -r : r);
-    const cz = c.z + (corner < 2 ? -r : r);
-    const treeH = 3.6 + treeRng() * 1.8;
-    const trunkScale = treeH / 2.2;
-
-    posV.set(cx, treeH * 0.24, cz);
-    scaleV.set(1, trunkScale, 1);
-    m.compose(posV, q, scaleV);
-    trunks.setMatrixAt(i, m);
-
-    for (let l = 0; l < foliageLayers; l++) {
-      const fy = treeH * 0.5 + l * (treeH * 0.22);
-      const fr = (1.1 - l * 0.18) * (0.85 + treeRng() * 0.3);
-      posV.set(cx + (treeRng() - 0.5) * 0.3, fy, cz + (treeRng() - 0.5) * 0.3);
-      scaleV.set(fr, fr * 0.85, fr);
-      m.compose(posV, q, scaleV);
-      foliage.setMatrixAt(foliageIdx++, m);
-    }
-  });
-  trunks.instanceMatrix.needsUpdate = true;
-  foliage.instanceMatrix.needsUpdate = true;
-}
-
-// ============================================================
-// Vehicles
-// ============================================================
-function buildCar() {
-  const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: '#287e91', roughness: 0.3, metalness: 0.6 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 4.2), bodyMat);
-  body.position.y = 0.55;
-  body.castShadow = true;
-  group.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 2.0), new THREE.MeshStandardMaterial({ color: '#15272e', roughness: 0.2, metalness: 0.3 }));
-  cabin.position.set(0, 0.98, -0.2);
-  cabin.castShadow = true;
-  group.add(cabin);
-  const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.32, 14);
-  wheelGeo.rotateZ(Math.PI / 2);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: '#111' });
-  const wheels = [];
-  const wPos = [[-0.9, 0.35, 1.5], [0.9, 0.35, 1.5], [-0.9, 0.35, -1.5], [0.9, 0.35, -1.5]];
-  for (const [x, y, z] of wPos) {
-    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-    wheel.position.set(x, y, z);
-    wheel.castShadow = true;
-    group.add(wheel);
-    wheels.push(wheel);
-  }
-  const headMat = new THREE.MeshStandardMaterial({ color: '#fff8e0', emissive: '#fff8e0', emissiveIntensity: 1.4 });
-  const headL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.05), headMat);
-  headL.position.set(-0.6, 0.6, 2.12);
-  const headR = headL.clone(); headR.position.x = 0.6;
-  group.add(headL, headR);
-  const tailMat = new THREE.MeshStandardMaterial({ color: '#ff2b2b', emissive: '#ff2b2b', emissiveIntensity: 0.6 });
-  const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.05), tailMat);
-  tailL.position.set(-0.6, 0.6, -2.12);
-  const tailR = tailL.clone(); tailR.position.x = 0.6;
-  group.add(tailL, tailR);
-  scene.add(group);
-  return { group, wheels: [wheels[2], wheels[3]], steerWheels: [wheels[0], wheels[1]], tailMat };
-}
-
-function buildMoto() {
-  // "Street Hawk 1000": exposed-engine naked bike
-  const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: '#b6404a', roughness: 0.35, metalness: 0.55 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 2.0), bodyMat);
-  body.position.y = 0.75;
-  body.castShadow = true;
-  group.add(body);
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.8), new THREE.MeshStandardMaterial({ color: '#181818' }));
-  seat.position.set(0, 1.02, -0.35);
-  group.add(seat);
-
-  const engineMat = new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.4, metalness: 0.8 });
-  const engine = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.5), engineMat);
-  engine.position.set(0, 0.45, 0.1);
-  engine.castShadow = true;
-  group.add(engine);
-  const finGeo = new THREE.BoxGeometry(0.4, 0.04, 0.04);
-  for (let i = 0; i < 4; i++) {
-    const fin = new THREE.Mesh(finGeo, engineMat);
-    fin.position.set(0, 0.34 + i * 0.06, 0.1);
-    group.add(fin);
-  }
-
-  const exhaustMat = new THREE.MeshStandardMaterial({ color: '#c9c9c9', roughness: 0.25, metalness: 0.9 });
-  const exhaustGeo = new THREE.CylinderGeometry(0.05, 0.06, 1.1, 8);
-  exhaustGeo.rotateX(Math.PI / 2);
-  for (const side of [-1, 1]) {
-    const exhaust = new THREE.Mesh(exhaustGeo, exhaustMat);
-    exhaust.position.set(side * 0.16, 0.3, -0.7);
-    exhaust.castShadow = true;
-    group.add(exhaust);
-  }
-
-  const barMat = new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.5, metalness: 0.6 });
-  const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 6), barMat);
-  handlebar.rotation.z = Math.PI / 2;
-  handlebar.position.set(0, 1.05, 0.85);
-  group.add(handlebar);
-  const gripGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.12, 6);
-  for (const side of [-1, 1]) {
-    const grip = new THREE.Mesh(gripGeo, barMat);
-    grip.rotation.z = Math.PI / 2;
-    grip.position.set(side * 0.31, 1.05, 0.85);
-    group.add(grip);
-  }
-
-  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.16, 14);
-  wheelGeo.rotateZ(Math.PI / 2);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: '#111' });
-  const front = new THREE.Mesh(wheelGeo, wheelMat);
-  front.position.set(0, 0.34, 1.0);
-  front.castShadow = true;
-  const rear = new THREE.Mesh(wheelGeo, wheelMat);
-  rear.position.set(0, 0.34, -1.0);
-  rear.castShadow = true;
-  group.add(front, rear);
-  const headMat = new THREE.MeshStandardMaterial({ color: '#fff8e0', emissive: '#fff8e0', emissiveIntensity: 1.4 });
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), headMat);
-  head.position.set(0, 0.85, 1.05);
-  group.add(head);
-  const roll = new THREE.Group();
-  roll.add(group);
-  scene.add(roll);
-  return { group: roll, wheels: [front, rear] };
-}
-
-const car = buildCar();
-const moto = buildMoto();
-
-// ============================================================
-// Character
-// ============================================================
-function buildCharacter() {
-  const group = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: '#e0b28e', roughness: 0.8 });
-  const shirt = new THREE.MeshStandardMaterial({ color: '#2f5fa8', roughness: 0.8 });
-  const pants = new THREE.MeshStandardMaterial({ color: '#33384a', roughness: 0.85 });
-
-  const hips = new THREE.Group();
-  hips.position.y = 0.9;
-  group.add(hips);
-
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.24), shirt);
-  torso.position.y = 0.34;
-  torso.castShadow = true;
-  hips.add(torso);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), skin);
-  head.position.y = 0.72;
-  head.castShadow = true;
-  hips.add(head);
-
-  function makeLimb(mat, len, x, side) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, side === 'leg' ? 0 : 0.58, 0);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.14, len, 0.14), mat);
-    mesh.position.y = -len / 2;
-    mesh.castShadow = true;
-    pivot.add(mesh);
-    hips.add(pivot);
-    return pivot;
-  }
-  const legL = makeLimb(pants, 0.85, -0.11, 'leg');
-  const legR = makeLimb(pants, 0.85, 0.11, 'leg');
-  const armL = makeLimb(shirt, 0.6, -0.28, 'arm');
-  const armR = makeLimb(shirt, 0.6, 0.28, 'arm');
-
-  scene.add(group);
-  return { group, legL, legR, armL, armR };
-}
-const character = buildCharacter();
+const car = buildCar(THREE, scene);
+const moto = buildMoto(THREE, scene);
+const character = buildCharacter(THREE, scene);
 
 // ============================================================
 // Pedestrians
@@ -644,94 +198,9 @@ function resolveCircleVsBuildings(state, radius) {
   state.z = clamp(state.z, -half, half);
 }
 
-function hitLampPoles(x, z, speed) {
-  if (Math.abs(speed) * 3.6 < 10) return false;
-  let hitAny = false;
-  for (const p of lampPoles) {
-    if (!p.alive || p.broken) continue;
-    if (Math.hypot(p.x - x, p.z - z) > 0.9) continue;
-    p.broken = true;
-    p.fadeTimer = 2.5;
-    spawnDebrisBurst(p.x, 3, p.z, '#333333', 10);
-    const idx = nightLights.indexOf(p.light);
-    if (idx >= 0) nightLights.splice(idx, 1);
-    hitAny = true;
-  }
-  return hitAny;
-}
-
-function updateLampPoles(dt) {
-  for (const p of lampPoles) {
-    if (!p.broken || !p.alive) continue;
-    p.tilt = Math.min(p.tilt + dt * 3, Math.PI / 2.2);
-    p.group.rotation.z = p.tilt;
-    p.fadeTimer -= dt;
-    p.light.intensity *= (1 - dt * 2);
-    if (p.fadeTimer <= 0) { p.alive = false; p.group.visible = false; p.light.intensity = 0; }
-  }
-}
-
-// ============================================================
-// Vehicle physics
-// ============================================================
-function updateVehicle(state, dt, params) {
-  const yawBefore = state.yaw;
-  const { steer, throttle } = steerThrottle();
-  const nitro = keys.shift && throttle > 0;
-  state.boosting = nitro;
-  const boostMul = nitro ? 1.55 : 1;
-  const maxV = params.maxV * (nitro ? 1.25 : 1);
-
-  if (keys.space && throttle > 0 && Math.abs(state.speed) < 3) {
-    const rx = state.x - Math.sin(state.yaw) * 1.4, rz = state.z - Math.cos(state.yaw) * 1.4;
-    spawnSmoke(rx, 0.15, rz, 1);
-  }
-
-  let accel = 0;
-  if (throttle > 0) accel = params.accel * boostMul * (1 - Math.max(state.speed, 0) / maxV) * throttle;
-  else if (throttle < 0) accel = (state.speed > 1 ? params.brake : -10 * (1 + state.speed / 14)) * -throttle;
-  state.speed += accel * dt;
-  state.speed -= params.drag * state.speed * dt;
-  if (throttle === 0) state.speed *= (1 - 0.18 * dt);
-  state.speed = clamp(state.speed, -params.maxV * 0.4, maxV);
-
-  const speedFrac = Math.min(Math.abs(state.speed) / params.turnDenom, 1);
-  state.yaw += steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed) * speedFrac * Math.sign(state.speed || 1) * dt;
-  state.x += Math.sin(state.yaw) * state.speed * dt;
-  state.z += Math.cos(state.yaw) * state.speed * dt;
-  state.steer = steer;
-
-  if (vehicleHitPedestrians(state.x, state.z, state.speed)) {
-    state.speed *= 0.92;
-    increaseWanted(state.x, state.z, 1);
-    playImpact(0.8);
-  }
-
-  const propHit = vehicleHitProps(state.x, state.z, state.speed);
-  if (propHit.hydrantHit) playImpact(0.5);
-  if (hitLampPoles(state.x, state.z, state.speed)) { state.speed *= 0.8; playImpact(0.6); }
-
-  const speedBefore = state.speed;
-  resolveCircleVsBuildings(state, params.radius);
-  state.wallCooldown = (state.wallCooldown || 0) - dt;
-  if (Math.abs(speedBefore) > 8 && state.speed < speedBefore * 0.9 && state.wallCooldown <= 0) {
-    state.wallCooldown = 0.4;
-    scrapeSparks(state.x, 0.5, state.z, Math.sin(state.yaw), Math.cos(state.yaw));
-    playImpact(0.35);
-  }
-
-  // stunt ramps: launch into the air, integrate a simple gravity arc, score spin on landing
-  if (state.y <= 0 && state.vy === 0) {
-    const launch = checkRampLaunch(state);
-    if (launch) { state.vy = launch.vy; onAirborneStart(yawBefore); slowMoTimer = 1.1; }
-  }
-  if (state.y > 0 || state.vy !== 0) {
-    state.vy -= GRAVITY * dt;
-    state.y += state.vy * dt;
-    onAirborneFrame(yawBefore, state.yaw);
-    if (state.y <= 0) { state.y = 0; state.vy = 0; onAirborneEnd(); }
-  }
-}
+// context passed into the extracted vehicleController.updateVehicle() so it
+// can reach world collision/lamp logic that still lives in this module
+const vehicleCtx = { keys, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
 
 function updateFoot(dt) {
   const { steer, throttle } = steerThrottle();
@@ -750,13 +219,8 @@ function updateFoot(dt) {
   foot.y += foot.vy * dt;
   if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; }
 
-  const speedFactor = clamp(Math.abs(foot.speed) / FOOT_RUN, 0, 1.35);
   foot.phase += dt * (2.2 + Math.abs(foot.speed) * 1.15);
-  const swing = Math.sin(foot.phase) * 0.55 * speedFactor;
-  character.legL.rotation.x = swing;
-  character.legR.rotation.x = -swing;
-  character.armL.rotation.x = -swing * 0.8;
-  character.armR.rotation.x = swing * 0.8;
+  applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_RUN);
 }
 
 function showMessage(text) {
@@ -775,26 +239,6 @@ function tryPunch() {
   }
 }
 
-function seatOnMoto() {
-  scene.remove(character.group);
-  moto.group.add(character.group);
-  character.group.position.set(0, 0.21, -0.35);
-  character.group.rotation.set(0, 0, 0);
-  character.legL.rotation.x = -1.35;
-  character.legR.rotation.x = -1.35;
-  character.armL.rotation.x = -0.35;
-  character.armR.rotation.x = -0.35;
-}
-function unseatFromMoto() {
-  moto.group.remove(character.group);
-  scene.add(character.group);
-  character.group.rotation.set(0, foot.yaw, 0);
-  character.legL.rotation.x = 0;
-  character.legR.rotation.x = 0;
-  character.armL.rotation.x = 0;
-  character.armR.rotation.x = 0;
-}
-
 function tryEnterExit() {
   if (mode === 'foot') {
     const dCar = Math.hypot(foot.x - carState.x, foot.z - carState.z);
@@ -805,7 +249,7 @@ function tryEnterExit() {
       showMessage('נכנסת למכונית — F ליציאה');
     } else if (dMoto <= ENTER_RANGE) {
       mode = 'moto';
-      seatOnMoto();
+      seatOnMoto(scene, character, moto.group);
       showMessage('עלית לאופנוע — F ליציאה');
     }
   } else {
@@ -815,7 +259,7 @@ function tryEnterExit() {
       foot.z = state.z - Math.cos(state.yaw) * 3;
       foot.yaw = state.yaw;
       state.speed = 0;
-      if (mode === 'moto') unseatFromMoto();
+      if (mode === 'moto') unseatFromMoto(scene, character, moto.group, foot.yaw);
       mode = 'foot';
       character.group.visible = true;
       showMessage('ירדת מהרכב');
@@ -885,13 +329,11 @@ function updateDayNight(dt) {
 
   for (const mat of shopSigns) mat.emissiveIntensity = n;
   for (const light of nightLights) light.intensity = n * light.__base;
-  for (const key in buildingMaterials) buildingMaterials[key].emissiveIntensity = n * 0.9;
+  for (const mat of buildingMaterials) mat.emissiveIntensity = n * 0.9;
 
   nightFactor = n;
   hudClock.textContent = n > 0.5 ? '🌙 לילה' : '☀️ יום';
 }
-
-for (const l of nightLights) l.__base = l.distance === 20 ? 2.2 : l.distance === 8 ? 10 : 1.4;
 
 // ============================================================
 // Mesh sync
@@ -997,8 +439,8 @@ function stepSim(dt) {
   if (punchEdge) { tryPunch(); punchEdge = false; }
 
   if (!paused) {
-    if (mode === 'car') updateVehicle(carState, dt, CAR_PARAMS);
-    else if (mode === 'moto') updateVehicle(motoState, dt, MOTO_PARAMS);
+    if (mode === 'car') { if (updateVehicle(carState, dt, CAR_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
+    else if (mode === 'moto') { if (updateVehicle(motoState, dt, MOTO_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
     else updateFoot(dt);
     updatePedestrians(dt);
     updateProps(dt);

@@ -1,18 +1,25 @@
+import { loadSave, saveState } from './saveSystem.js';
+
 let THREE_, scene_;
 const ramps = [];
 const markers = [];
-let delivery = null; // { fromIdx, toIdx, timeLeft, reward }
-let score = 0;
+let delivery = null; // { toIdx, timeLeft, reward, kind: 'delivery'|'taxi' }
+let score = loadSave().cash;
 let splashTimer = 0;
 let splashText = '';
-let airborne = { active: false, startYaw: 0, spin: 0 };
+let airborne = { active: false, startYaw: 0, spin: 0, startX: 0, startZ: 0 };
 
 // coordinates keep at least one axis on a street centerline (multiple of the
-// 40m block pitch) so markers and ramps land clear of building footprints
+// 40m block pitch) so markers and ramps land clear of building footprints.
+// Alternating kinds means the same marker set serves both mission types --
+// there's no separate warehouse/passenger content in this build.
 const DELIVERY_LOCAL_POINTS = [
-  { x: 0, z: 120 }, { x: -160, z: 0 }, { x: 120, z: -40 }, { x: -40, z: -160 }, { x: 160, z: 160 },
+  { x: 0, z: 120, kind: 'delivery' }, { x: -160, z: 0, kind: 'taxi' },
+  { x: 120, z: -40, kind: 'delivery' }, { x: -40, z: -160, kind: 'taxi' },
+  { x: 160, z: 160, kind: 'delivery' },
 ];
-const DELIVERY_TIME = 45;
+const DELIVERY_TIME = 60;
+const TAXI_TIME = 55;
 const MARKER_RADIUS = 5;
 
 export function initMissions(scene, THREE) {
@@ -20,15 +27,16 @@ export function initMissions(scene, THREE) {
   scene_ = scene;
 
   const markerGeo = new THREE.CylinderGeometry(1.4, 1.4, 0.1, 16);
-  const markerMat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffd23f', emissiveIntensity: 1.6, transparent: true, opacity: 0.75 });
   for (const p of DELIVERY_LOCAL_POINTS) {
-    const mesh = new THREE.Mesh(markerGeo, markerMat.clone());
+    const color = p.kind === 'taxi' ? '#43c6ff' : '#ffd23f';
+    const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6, transparent: true, opacity: 0.75 });
+    const mesh = new THREE.Mesh(markerGeo, mat);
     mesh.position.set(p.x, 0.1, p.z);
     scene.add(mesh);
-    const beam = new THREE.PointLight('#ffd23f', 2.2, 10);
+    const beam = new THREE.PointLight(color, 2.2, 10);
     beam.position.set(p.x, 2, p.z);
     scene.add(beam);
-    markers.push({ x: p.x, z: p.z, mesh, beam });
+    markers.push({ x: p.x, z: p.z, kind: p.kind, mesh, beam });
   }
 
   const rampGeo = new THREE.BoxGeometry(3.6, 1.2, 6);
@@ -64,6 +72,11 @@ function showSplash(text, duration = 2.2) {
   splashTimer = duration;
 }
 
+function addCash(amount) {
+  score += amount;
+  saveState({ cash: score });
+}
+
 export function updateMissions(dt, playerX, playerZ, isVehicle) {
   const pulse = 0.6 + Math.sin(performance.now() * 0.004) * 0.4;
   for (const m of markers) m.mesh.material.emissiveIntensity = 1.2 + pulse;
@@ -72,9 +85,16 @@ export function updateMissions(dt, playerX, playerZ, isVehicle) {
     for (let i = 0; i < markers.length; i++) {
       const d = Math.hypot(markers[i].x - playerX, markers[i].z - playerZ);
       if (d < MARKER_RADIUS) {
+        const kind = markers[i].kind;
         const toIdx = pickDestination(i);
-        delivery = { toIdx, timeLeft: DELIVERY_TIME, reward: 80 + Math.floor(Math.random() * 60) };
-        showSplash('משלוח החל! הגיעו ליעד בזמן', 1.8);
+        if (kind === 'taxi') {
+          delivery = { toIdx, timeLeft: TAXI_TIME, totalTime: TAXI_TIME, kind };
+          showSplash('נוסע עלה לרכב! קחו אותו ליעד', 1.8);
+        } else {
+          const reward = 2000 + Math.floor(Math.random() * 6000);
+          delivery = { toIdx, timeLeft: DELIVERY_TIME, totalTime: DELIVERY_TIME, reward, kind };
+          showSplash('משלוח החל! הגיעו ליעד בזמן', 1.8);
+        }
         break;
       }
     }
@@ -83,11 +103,19 @@ export function updateMissions(dt, playerX, playerZ, isVehicle) {
     const dest = markers[delivery.toIdx];
     const d = Math.hypot(dest.x - playerX, dest.z - playerZ);
     if (d < MARKER_RADIUS) {
-      score += delivery.reward;
-      showSplash(`המשלוח הושלם! +₪${delivery.reward}`, 2.0);
+      if (delivery.kind === 'taxi') {
+        // "smooth driving" proxy: arriving with time to spare pays a bigger tip
+        const tip = Math.round(5000 * Math.max(0, delivery.timeLeft / delivery.totalTime));
+        const reward = 1500 + tip;
+        addCash(reward);
+        showSplash(`הנוסע הגיע! +₪${reward} (כולל טיפ ₪${tip})`, 2.0);
+      } else {
+        addCash(delivery.reward);
+        showSplash(`המשלוח הושלם! +₪${delivery.reward}`, 2.0);
+      }
       delivery = null;
     } else if (delivery.timeLeft <= 0) {
-      showSplash('המשלוח נכשל — נגמר הזמן', 1.8);
+      showSplash(delivery.kind === 'taxi' ? 'הנוסע ירד — נגמר הזמן' : 'המשלוח נכשל — נגמר הזמן', 1.8);
       delivery = null;
     }
   }
@@ -97,7 +125,7 @@ export function updateMissions(dt, playerX, playerZ, isVehicle) {
   let waypoint = null;
   if (delivery) {
     const dest = markers[delivery.toIdx];
-    waypoint = { x: dest.x, z: dest.z, dist: Math.hypot(dest.x - playerX, dest.z - playerZ), timeLeft: Math.max(0, delivery.timeLeft) };
+    waypoint = { x: dest.x, z: dest.z, dist: Math.hypot(dest.x - playerX, dest.z - playerZ), timeLeft: Math.max(0, delivery.timeLeft), kind: delivery.kind };
   }
 
   for (const r of ramps) if (r.cooldown > 0) r.cooldown -= dt;
@@ -119,24 +147,28 @@ export function checkRampLaunch(state) {
   return null;
 }
 
-export function onAirborneStart(yaw) {
+export function onAirborneStart(yaw, x, z) {
   airborne.active = true;
   airborne.startYaw = yaw;
   airborne.spin = 0;
+  airborne.startX = x;
+  airborne.startZ = z;
 }
 export function onAirborneFrame(prevYaw, currentYaw) {
   if (!airborne.active) return;
   let d = ((currentYaw - prevYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
   airborne.spin += Math.abs(d);
 }
-export function onAirborneEnd() {
+export function onAirborneEnd(x, z) {
   if (!airborne.active) return;
   airborne.active = false;
-  if (airborne.spin > 0.9) {
-    showSplash('STUNT JUMP COMPLETED!', 2.2);
-  }
+  const dist = Math.hypot(x - airborne.startX, z - airborne.startZ);
+  if (airborne.spin < 0.5 && dist < 4) return; // too small a hop to count as a stunt
+  const reward = 500 + Math.round(Math.min(1, dist / 100) * 9500);
+  addCash(reward);
+  showSplash(`STUNT JUMP COMPLETED! +₪${reward}`, 2.2);
 }
 
 export function getScore() { return score; }
-export function getMarkers() { return markers.map(m => ({ x: m.x, z: m.z })); }
+export function getMarkers() { return markers.map(m => ({ x: m.x, z: m.z, kind: m.kind })); }
 export function getRamps() { return ramps.map(r => ({ x: r.x, z: r.z, yaw: r.yaw })); }
