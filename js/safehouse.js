@@ -24,6 +24,21 @@ let getScore_, spendCash_, showMessage_, openWardrobe_, getPlayerState_;
 
 function isOwned(tier) { return getSave().ownedTiers.includes(tier); }
 
+// the safehouse bodies (BoxGeometry(6,4,6)) were never registered with the
+// city's building-collision list, so a car could drive straight through
+// them -- this gives game.js AABBs it can push into the same buildingAABBs
+// array resolveCircleVsBuildings already checks, with no other code needed.
+// The house yaw is always 0 or PI, and a 6x6 footprint is square, so a
+// world-axis-aligned box needs no rotation math for either angle.
+export function getHouseAABBs(block, cityHalf) {
+  const HALF = 3;
+  return PROPERTIES.map((def) => {
+    const bx = Math.round((def.x + cityHalf) / block - 0.5);
+    const bz = Math.round((def.z + cityHalf) / block - 0.5);
+    return { minX: def.x - HALF, maxX: def.x + HALF, minZ: def.z - HALF, maxZ: def.z + HALF, bx, bz };
+  });
+}
+
 function buildHouse(scene, THREE, def) {
   const group = new THREE.Group();
   group.position.set(def.x, 0, def.z);

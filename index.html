@@ -61,7 +61,6 @@ if ('serviceWorker' in navigator) {
       <button id="menu-shop" class="side-btn side-btn-yellow" title="חנות שיפורים">🛠️<span id="shop-badge" class="badge hidden"></span></button>
       <button id="menu-home" class="side-btn side-btn-blue" title="חזרה לבסיס">🏠</button>
       <button id="menu-settings" class="side-btn side-btn-grey" title="הגדרות">⚙️</button>
-      <button id="menu-wardrobe" class="side-btn side-btn-grey" title="התאמת דמות">🎨</button>
     </div>
 
     <div id="panel-garage" class="panel hidden">
@@ -143,6 +142,16 @@ if ('serviceWorker' in navigator) {
         <h2>⚙️ הגדרות</h2>
         <button id="settings-mute" class="btn-small btn-wide">🔈 השתק צלילים</button>
         <button id="settings-skip-time" class="btn-small btn-wide">⏩ דלג בזמן היום</button>
+        <button id="settings-wardrobe" class="btn-small btn-wide">🎨 התאמת דמות</button>
+        <button id="settings-knife" class="btn-small btn-wide">🔪 החלף לסכין / אגרוף</button>
+        <div class="settings-row">
+          <span>גודל כפתורי מגע</span>
+          <div class="settings-sizes">
+            <button class="size-btn" data-size="0.75">קטן</button>
+            <button class="size-btn active" data-size="1">רגיל</button>
+            <button class="size-btn" data-size="1.35">גדול</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -179,6 +188,11 @@ if ('serviceWorker' in navigator) {
         <button id="t-jump" class="br-btn br-btn-jump">⤴</button>
       </div>
     </div>
+  </div>
+
+  <div id="rotate-hint">
+    <div class="rotate-icon">📱</div>
+    <p>סובב את המכשיר לרוחב (Landscape) כדי לשחק</p>
   </div>
 
 <script type="module" src="js/game.js"></script>

@@ -131,6 +131,12 @@ function loadCustomPlayerModel(THREE, rig) {
       const model = gltf.scene;
       model.scale.setScalar(PLAYER_MODEL_SCALE);
       model.position.y += PLAYER_MODEL_Y_OFFSET;
+      // this rig (like most Mixamo-based exports, including three.js's own
+      // Soldier.glb) treats -Z as its front, while every movement formula in
+      // this game (foot.x += sin(yaw)*speed, foot.z += cos(yaw)*speed) treats
+      // +Z as forward at yaw=0. Without this correction the model visibly
+      // walks backwards -- moving toward +Z while its front faces -Z.
+      model.rotation.y = Math.PI;
       model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       rig.group.add(model);
       rig.customModel = model;

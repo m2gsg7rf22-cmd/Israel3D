@@ -225,20 +225,25 @@ body {
 .side-menu {
   position: absolute;
   left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   z-index: 12;
+  /* anchored to the top rather than vertically centered, and capped well
+     short of the viewport, so it can never reach down into the joystick's
+     corner on a short landscape phone screen -- the exact overlap a real
+     device hit (confirmed at 844x390: the two boxes fully overlapped) */
+  max-height: 60%;
+  overflow: visible;
 }
 
 .side-menu.hidden { display: none; }
 
 .side-btn {
   position: relative;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   background: rgba(255, 255, 255, 0.12);
@@ -353,6 +358,65 @@ body {
 }
 
 .btn-wide { width: 100%; }
+
+/* the whole game is built for a 16:9 landscape frame; in portrait the frame
+   collapses to a thin strip and UI overlays (joystick, side menu) crowd
+   together with nothing to space them apart, so block play entirely with a
+   clear instruction instead of shipping a cramped, hard-to-tap layout */
+#rotate-hint { display: none; }
+@media (orientation: portrait) {
+  #rotate-hint {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: #0a0e17;
+    color: #fff;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    padding: 20px;
+    font-size: 16px;
+  }
+}
+.rotate-icon {
+  font-size: 48px;
+  animation: rotate-hint-spin 2s ease-in-out infinite;
+}
+@keyframes rotate-hint-spin {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.settings-sizes {
+  display: flex;
+  gap: 6px;
+}
+
+.size-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.size-btn.active {
+  background: #3f6eff;
+  border-color: #3f6eff;
+}
 
 .garage-row {
   display: flex;
@@ -562,6 +626,8 @@ body {
   pointer-events: auto;
   touch-action: none;
   z-index: 99999;
+  transform: scale(var(--touch-scale, 1));
+  transform-origin: bottom left;
 }
 
 .joystick.active {
@@ -589,6 +655,8 @@ body {
   width: 108px;
   height: 100px;
   pointer-events: none;
+  transform: scale(var(--touch-scale, 1));
+  transform-origin: bottom right;
 }
 
 .br-btn {

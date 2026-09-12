@@ -17,7 +17,7 @@ import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
-import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation } from './safehouse.js';
+import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { getSave } from './saveSystem.js';
 
 // ============================================================
@@ -153,6 +153,10 @@ scene.add(dirLight.target);
 const cityOpts = { grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED, skipBlocks: [{ bx: 4, bz: 4 }] };
 const cityArch = initCityArchitecture(scene, THREE, cityOpts);
 const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles } = cityArch;
+// the safehouse structures aren't part of cityArchitecture's own generation,
+// so they were never in this list -- without this, vehicles and the player
+// on foot could walk/drive straight through the safehouse buildings
+buildingAABBs.push(...getHouseAABBs(BLOCK, CITY_HALF));
 initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
 const car = buildCar(THREE, scene);
@@ -255,11 +259,15 @@ function showMessage(text) {
 
 function tryPunch() {
   if (mode !== 'foot') return;
-  const hit = punchNear(foot.x, foot.z, foot.yaw);
+  const isKnife = weapon === 'knife';
+  const hit = punchNear(foot.x, foot.z, foot.yaw, isKnife ? 2.1 : 1.5);
   if (hit) {
     playPunch();
-    if (nightFactor < 0.5) increaseWanted(foot.x, foot.z, 1); // "in broad daylight" per spec
-    showMessage('אגרוף!');
+    // a knife draws attention regardless of time of day, and escalates the
+    // search level faster than a bare-handed shove
+    if (isKnife) increaseWanted(foot.x, foot.z, 2);
+    else if (nightFactor < 0.5) increaseWanted(foot.x, foot.z, 1); // "in broad daylight" per spec
+    showMessage(isKnife ? 'דקירה!' : 'אגרוף!');
   }
 }
 
@@ -532,13 +540,36 @@ document.getElementById('settings-mute').addEventListener('click', (e) => {
   e.target.textContent = muted ? '🔇 בטל השתקה' : '🔈 השתק צלילים';
 });
 document.getElementById('settings-skip-time').addEventListener('click', () => { dayTime = (dayTime + 0.25) % 1; });
+// the wardrobe/customizer button used to live in the main side-menu, but on
+// a real landscape phone screen it overlapped the joystick (confirmed: both
+// boxes fully coincided at 844x390) -- moved into the settings panel instead
+document.getElementById('settings-wardrobe').addEventListener('click', () => { closeAllPanels(); panelCustomizer.classList.remove('hidden'); });
+
+let weapon = 'fist'; // 'fist' | 'knife' -- toggled from settings, read by tryPunch()
+document.getElementById('settings-knife').addEventListener('click', (e) => {
+  weapon = weapon === 'fist' ? 'knife' : 'fist';
+  e.target.textContent = weapon === 'knife' ? '👊 החלף לאגרוף' : '🔪 החלף לסכין';
+});
+
+const TOUCH_SIZE_KEY = 'openCity.touchScale';
+function applyTouchScale(scale) {
+  document.documentElement.style.setProperty('--touch-scale', scale);
+  document.querySelectorAll('.size-btn').forEach((b) => b.classList.toggle('active', b.dataset.size === String(scale)));
+  try { localStorage.setItem(TOUCH_SIZE_KEY, scale); } catch (e) { /* private mode -- just won't persist */ }
+}
+document.querySelectorAll('.size-btn').forEach((b) => {
+  b.addEventListener('click', () => applyTouchScale(b.dataset.size));
+});
+try {
+  const savedScale = localStorage.getItem(TOUCH_SIZE_KEY);
+  if (savedScale) applyTouchScale(savedScale);
+} catch (e) { /* private mode -- default scale stays 1 */ }
 
 document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-home').addEventListener('click', goHome);
 document.getElementById('menu-settings').addEventListener('click', () => { closeAllPanels(); panelSettings.classList.remove('hidden'); });
-document.getElementById('menu-wardrobe').addEventListener('click', () => { closeAllPanels(); panelCustomizer.classList.remove('hidden'); });
 
 // ============================================================
 // Resize
