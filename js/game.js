@@ -21,7 +21,7 @@ import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle,
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
 import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z } from './prison.js';
 import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS } from './racing.js';
-import { getSave } from './saveSystem.js';
+import { getSave, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
 // ============================================================
 // Constants
@@ -109,6 +109,10 @@ const raceProgressFill = document.getElementById('race-progress-fill');
 const racePositionEl = document.getElementById('race-position');
 const raceExitBtn = document.getElementById('race-exit');
 
+const screenWorlds = document.getElementById('screen-worlds');
+const worldListEl = document.getElementById('world-list');
+const worldNewName = document.getElementById('world-new-name');
+const worldNewBtn = document.getElementById('world-new-btn');
 const screenStart = document.getElementById('screen-start');
 const screenPause = document.getElementById('screen-pause');
 const btnStart = document.getElementById('btn-start');
@@ -990,12 +994,72 @@ if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
 }
 
 btnStart.addEventListener('click', startGame);
+
+// ============================================================
+// World select (shown before the start screen, every time the game opens)
+// ============================================================
+function renderWorldSelect() {
+  worldListEl.innerHTML = '';
+  const worlds = listWorlds();
+  const activeId = getActiveWorldId();
+  if (!worlds.length) {
+    const hint = document.createElement('p');
+    hint.className = 'world-empty-hint';
+    hint.textContent = 'אין עדיין עולמות שמורים — צרו עולם חדש כדי להתחיל.';
+    worldListEl.appendChild(hint);
+  }
+  for (const w of worlds) {
+    const item = document.createElement('div');
+    item.className = 'world-item';
+    const dateStr = new Date(w.lastPlayedAt).toLocaleDateString('he-IL');
+    item.innerHTML = `
+      <div class="world-info">
+        <div class="world-name"></div>
+        <div class="world-meta">שוחק לאחרונה: ${dateStr}</div>
+      </div>
+      ${w.id === activeId ? '<span class="world-active-badge">פעיל</span>' : ''}
+      <button class="world-delete" type="button" title="מחק עולם">🗑</button>
+    `;
+    item.querySelector('.world-name').textContent = w.name; // via textContent, not template interpolation -- world names are user-typed text
+    item.querySelector('.world-info').addEventListener('click', () => enterWorld(w.id));
+    item.querySelector('.world-active-badge')?.addEventListener('click', () => enterWorld(w.id));
+    item.querySelector('.world-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm(`למחוק את "${w.name}"? הפעולה בלתי הפיכה.`)) {
+        deleteWorld(w.id);
+        renderWorldSelect();
+      }
+    });
+    worldListEl.appendChild(item);
+  }
+}
+
+function enterWorld(id) {
+  if (id === getActiveWorldId()) {
+    // this world's data is already what's loaded in memory -- no reload needed
+    screenWorlds.classList.add('hidden');
+    screenStart.classList.remove('hidden');
+  } else {
+    // every module reads its save data from saveSystem.js at import time, so
+    // switching to a different world's data requires a fresh page load
+    switchWorld(id);
+    location.reload();
+  }
+}
+
+worldNewBtn.addEventListener('click', () => {
+  createWorld(worldNewName.value.trim());
+  location.reload();
+});
+
+renderWorldSelect();
 btnResume.addEventListener('click', togglePause);
 btnRestartPause.addEventListener('click', () => { screenPause.classList.add('hidden'); togglePause(); });
 btnPause.addEventListener('click', togglePause);
 
 resize();
 composer.render();
+window.__gameBooted = true;
 
 window.__frameCount = 0;
 window.__debug = () => ({

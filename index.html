@@ -20,6 +20,27 @@
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }
+// If the game module throws during its (synchronous, heavy) startup, every
+// button on the page -- including "start" -- would otherwise just silently
+// do nothing with zero feedback, which looks exactly like "the button
+// doesn't work". Surface it instead of failing silently.
+window.addEventListener('error', (e) => {
+  if (window.__gameBooted) return;
+  showBootError(e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (window.__gameBooted) return;
+  showBootError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+});
+function showBootError(message) {
+  if (document.getElementById('boot-error')) return;
+  const box = document.createElement('div');
+  box.id = 'boot-error';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:#0a0e17;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;font-family:sans-serif;direction:rtl;';
+  box.innerHTML = '<div style="font-size:40px">⚠️</div><h2 style="margin:0;color:#ff5f5f">המשחק נתקל בשגיאה בטעינה</h2><p style="max-width:480px;color:#cdd6e3;font-size:14px">רעננו את הדף (משכו מטה או Ctrl/Cmd+R). אם זה חוזר על עצמו, נסו לנקות את מטמון הדפדפן.</p><pre style="max-width:90%;overflow:auto;color:#7c8494;font-size:11px;text-align:left;direction:ltr"></pre>';
+  box.querySelector('pre').textContent = message || '';
+  document.body.appendChild(box);
+}
 </script>
 </head>
 <body>
@@ -194,7 +215,17 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <div id="screen-start" class="screen">
+    <div id="screen-worlds" class="screen">
+      <h1>🏙️ OPEN CITY <span>Meridian Bay</span></h1>
+      <p class="desc">בחרו עולם קיים כדי להמשיך בו, או צרו עולם חדש.</p>
+      <div id="world-list" class="world-list"></div>
+      <div class="world-new-row">
+        <input id="world-new-name" type="text" maxlength="24" placeholder="שם לעולם חדש (לא חובה)">
+        <button id="world-new-btn" class="btn btn-secondary">➕ עולם חדש</button>
+      </div>
+    </div>
+
+    <div id="screen-start" class="screen hidden">
       <h1>🏙️ OPEN CITY <span>Meridian Bay</span></h1>
       <p class="desc">עולם פתוח קטן: מכונית, אופנוע והליכה חופשית בעיר עם בניינים וחנויות.<br>התקרבו לרכב ולחצו F כדי לעלות עליו, ושוב F כדי לרדת.<br>זהירות מהמשטרה — פגיעה בהולכי רגל מעלה את רמת החיפוש.</p>
       <div class="controls-info">
