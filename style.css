@@ -114,6 +114,61 @@ body {
   unicode-bidi: isolate;
 }
 
+/* ---------- Wanted stars ---------- */
+#hud-wanted {
+  direction: ltr;
+  gap: 1px;
+}
+
+#hud-wanted .star {
+  font-style: normal;
+  font-size: 12px;
+  color: #3a3f47;
+  text-shadow: none;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+#hud-wanted .star.active {
+  color: #ffd23f;
+  text-shadow: 0 0 6px rgba(255, 210, 63, 0.9);
+}
+
+#hud-wanted.flash .star.active {
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 1);
+}
+
+/* ---------- Mission HUD: waypoint arrow, distance, countdown ---------- */
+#mission-hud {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 11, 18, 0.55);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 210, 63, 0.35);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffd23f;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#mission-hud.hidden {
+  display: none;
+}
+
+#mission-arrow {
+  display: inline-block;
+  font-size: 14px;
+  transition: transform 0.1s linear;
+}
+
 /* ---------- Screens ---------- */
 .screen {
   position: absolute;

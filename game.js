@@ -4,6 +4,10 @@ import { RenderPass } from './vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, vehicleHitPedestrians, getPedestrians } from './pedestrians.js';
+import { initAudio, playPunch, playImpact } from './audio.js';
+import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
+import { initProps, vehicleHitProps, scrapeSparks, updateProps, getProps, spawnDebrisBurst, spawnSmoke } from './props.js';
+import { initMissions, updateMissions, checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd, getMarkers, getRamps } from './missions.js';
 
 // ============================================================
 // Constants
@@ -59,6 +63,13 @@ const hudSpeed = document.getElementById('hud-speed');
 const hudMode = document.getElementById('hud-mode');
 const hudClock = document.getElementById('hud-clock');
 const hudMsg = document.getElementById('hud-msg');
+const hudCash = document.getElementById('hud-cash');
+const hudWanted = document.getElementById('hud-wanted');
+const wantedStars = Array.from(hudWanted.querySelectorAll('.star'));
+const missionHud = document.getElementById('mission-hud');
+const missionArrow = document.getElementById('mission-arrow');
+const missionDist = document.getElementById('mission-dist');
+const missionTimer = document.getElementById('mission-timer');
 
 const screenStart = document.getElementById('screen-start');
 const screenPause = document.getElementById('screen-pause');
@@ -333,27 +344,32 @@ addBuilding(2, 2, { floors: 26, shop: false });
 }
 addBuilding(9, 2, { floors: 4, shop: true });
 
-// street lamps at a subset of intersections
+// street lamps at a subset of intersections (hit-reactive: tip over + fade when rammed)
 const lampGeo = new THREE.CylinderGeometry(0.08, 0.08, 8, 6);
 const lampMat = new THREE.MeshStandardMaterial({ color: '#333' });
 const bulbGeo = new THREE.SphereGeometry(0.18, 8, 8);
+const lampPoles = [];
 for (let bx = 1; bx < GRID; bx += 2) {
   for (let bz = 1; bz < GRID; bz += 2) {
     const x = bx * BLOCK - CITY_HALF;
     const z = bz * BLOCK - CITY_HALF;
+    const poleGroup = new THREE.Group();
+    poleGroup.position.set(x, 0, z);
     const pole = new THREE.Mesh(lampGeo, lampMat);
-    pole.position.set(x, 4, z);
+    pole.position.set(0, 4, 0);
     pole.castShadow = true;
-    scene.add(pole);
+    poleGroup.add(pole);
     const bulbMat = new THREE.MeshStandardMaterial({ color: '#fff0d6', emissive: '#fff0d6', emissiveIntensity: 0 });
     const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-    bulb.position.set(x, 8, z);
-    scene.add(bulb);
+    bulb.position.set(0, 8, 0);
+    poleGroup.add(bulb);
+    scene.add(poleGroup);
     const light = new THREE.PointLight('#fff0d6', 0, 22, 2);
     light.position.set(x, 7.6, z);
     scene.add(light);
     nightLights.push(light);
     shopSigns.push(bulbMat);
+    lampPoles.push({ x, z, group: poleGroup, light, broken: false, alive: true, tilt: 0, fadeTimer: 0 });
   }
 }
 
@@ -454,6 +470,7 @@ function buildCar() {
 }
 
 function buildMoto() {
+  // "Street Hawk 1000": exposed-engine naked bike
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#b6404a', roughness: 0.35, metalness: 0.55 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 2.0), bodyMat);
@@ -463,6 +480,42 @@ function buildMoto() {
   const seat = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.8), new THREE.MeshStandardMaterial({ color: '#181818' }));
   seat.position.set(0, 1.02, -0.35);
   group.add(seat);
+
+  const engineMat = new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.4, metalness: 0.8 });
+  const engine = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.5), engineMat);
+  engine.position.set(0, 0.45, 0.1);
+  engine.castShadow = true;
+  group.add(engine);
+  const finGeo = new THREE.BoxGeometry(0.4, 0.04, 0.04);
+  for (let i = 0; i < 4; i++) {
+    const fin = new THREE.Mesh(finGeo, engineMat);
+    fin.position.set(0, 0.34 + i * 0.06, 0.1);
+    group.add(fin);
+  }
+
+  const exhaustMat = new THREE.MeshStandardMaterial({ color: '#c9c9c9', roughness: 0.25, metalness: 0.9 });
+  const exhaustGeo = new THREE.CylinderGeometry(0.05, 0.06, 1.1, 8);
+  exhaustGeo.rotateX(Math.PI / 2);
+  for (const side of [-1, 1]) {
+    const exhaust = new THREE.Mesh(exhaustGeo, exhaustMat);
+    exhaust.position.set(side * 0.16, 0.3, -0.7);
+    exhaust.castShadow = true;
+    group.add(exhaust);
+  }
+
+  const barMat = new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.5, metalness: 0.6 });
+  const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 6), barMat);
+  handlebar.rotation.z = Math.PI / 2;
+  handlebar.position.set(0, 1.05, 0.85);
+  group.add(handlebar);
+  const gripGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.12, 6);
+  for (const side of [-1, 1]) {
+    const grip = new THREE.Mesh(gripGeo, barMat);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.set(side * 0.31, 1.05, 0.85);
+    group.add(grip);
+  }
+
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.16, 14);
   wheelGeo.rotateZ(Math.PI / 2);
   const wheelMat = new THREE.MeshStandardMaterial({ color: '#111' });
@@ -533,20 +586,27 @@ const character = buildCharacter();
 // Pedestrians
 // ============================================================
 spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 32 });
+initPolice(scene, THREE);
+initProps(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED });
+initMissions(scene, THREE);
 
 // ============================================================
 // Simulation state
 // ============================================================
-const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0 };
-const motoState = { x: -6, z: 14, yaw: Math.PI, speed: 0 };
+const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
+const motoState = { x: -6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const foot = { x: 0, z: 20, yaw: Math.PI, y: 0, vy: 0, speed: 0, grounded: true, phase: 0 };
 
 let mode = 'foot';
 let dayTime = 0.4;
+let nightFactor = 0;
 let running = false;
 let paused = false;
 let msgTimer = 0;
 let lastTime = null;
+let lastSplash = null;
+let slowMoTimer = 0;
+let lastMissionInfo = { score: 0, waypoint: null, splash: null };
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
 let fEdge = false, spaceEdge = false, punchEdge = false;
@@ -584,18 +644,56 @@ function resolveCircleVsBuildings(state, radius) {
   state.z = clamp(state.z, -half, half);
 }
 
+function hitLampPoles(x, z, speed) {
+  if (Math.abs(speed) * 3.6 < 10) return false;
+  let hitAny = false;
+  for (const p of lampPoles) {
+    if (!p.alive || p.broken) continue;
+    if (Math.hypot(p.x - x, p.z - z) > 0.9) continue;
+    p.broken = true;
+    p.fadeTimer = 2.5;
+    spawnDebrisBurst(p.x, 3, p.z, '#333333', 10);
+    const idx = nightLights.indexOf(p.light);
+    if (idx >= 0) nightLights.splice(idx, 1);
+    hitAny = true;
+  }
+  return hitAny;
+}
+
+function updateLampPoles(dt) {
+  for (const p of lampPoles) {
+    if (!p.broken || !p.alive) continue;
+    p.tilt = Math.min(p.tilt + dt * 3, Math.PI / 2.2);
+    p.group.rotation.z = p.tilt;
+    p.fadeTimer -= dt;
+    p.light.intensity *= (1 - dt * 2);
+    if (p.fadeTimer <= 0) { p.alive = false; p.group.visible = false; p.light.intensity = 0; }
+  }
+}
+
 // ============================================================
 // Vehicle physics
 // ============================================================
 function updateVehicle(state, dt, params) {
+  const yawBefore = state.yaw;
   const { steer, throttle } = steerThrottle();
+  const nitro = keys.shift && throttle > 0;
+  state.boosting = nitro;
+  const boostMul = nitro ? 1.55 : 1;
+  const maxV = params.maxV * (nitro ? 1.25 : 1);
+
+  if (keys.space && throttle > 0 && Math.abs(state.speed) < 3) {
+    const rx = state.x - Math.sin(state.yaw) * 1.4, rz = state.z - Math.cos(state.yaw) * 1.4;
+    spawnSmoke(rx, 0.15, rz, 1);
+  }
+
   let accel = 0;
-  if (throttle > 0) accel = params.accel * (1 - Math.max(state.speed, 0) / params.maxV) * throttle;
+  if (throttle > 0) accel = params.accel * boostMul * (1 - Math.max(state.speed, 0) / maxV) * throttle;
   else if (throttle < 0) accel = (state.speed > 1 ? params.brake : -10 * (1 + state.speed / 14)) * -throttle;
   state.speed += accel * dt;
   state.speed -= params.drag * state.speed * dt;
   if (throttle === 0) state.speed *= (1 - 0.18 * dt);
-  state.speed = clamp(state.speed, -params.maxV * 0.4, params.maxV);
+  state.speed = clamp(state.speed, -params.maxV * 0.4, maxV);
 
   const speedFrac = Math.min(Math.abs(state.speed) / params.turnDenom, 1);
   state.yaw += steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed) * speedFrac * Math.sign(state.speed || 1) * dt;
@@ -603,8 +701,36 @@ function updateVehicle(state, dt, params) {
   state.z += Math.cos(state.yaw) * state.speed * dt;
   state.steer = steer;
 
-  if (vehicleHitPedestrians(state.x, state.z, state.speed)) state.speed *= 0.92;
+  if (vehicleHitPedestrians(state.x, state.z, state.speed)) {
+    state.speed *= 0.92;
+    increaseWanted(state.x, state.z, 1);
+    playImpact(0.8);
+  }
+
+  const propHit = vehicleHitProps(state.x, state.z, state.speed);
+  if (propHit.hydrantHit) playImpact(0.5);
+  if (hitLampPoles(state.x, state.z, state.speed)) { state.speed *= 0.8; playImpact(0.6); }
+
+  const speedBefore = state.speed;
   resolveCircleVsBuildings(state, params.radius);
+  state.wallCooldown = (state.wallCooldown || 0) - dt;
+  if (Math.abs(speedBefore) > 8 && state.speed < speedBefore * 0.9 && state.wallCooldown <= 0) {
+    state.wallCooldown = 0.4;
+    scrapeSparks(state.x, 0.5, state.z, Math.sin(state.yaw), Math.cos(state.yaw));
+    playImpact(0.35);
+  }
+
+  // stunt ramps: launch into the air, integrate a simple gravity arc, score spin on landing
+  if (state.y <= 0 && state.vy === 0) {
+    const launch = checkRampLaunch(state);
+    if (launch) { state.vy = launch.vy; onAirborneStart(yawBefore); slowMoTimer = 1.1; }
+  }
+  if (state.y > 0 || state.vy !== 0) {
+    state.vy -= GRAVITY * dt;
+    state.y += state.vy * dt;
+    onAirborneFrame(yawBefore, state.yaw);
+    if (state.y <= 0) { state.y = 0; state.vy = 0; onAirborneEnd(); }
+  }
 }
 
 function updateFoot(dt) {
@@ -642,7 +768,31 @@ function showMessage(text) {
 function tryPunch() {
   if (mode !== 'foot') return;
   const hit = punchNear(foot.x, foot.z, foot.yaw);
-  if (hit) showMessage('אגרוף!');
+  if (hit) {
+    playPunch();
+    if (nightFactor < 0.5) increaseWanted(foot.x, foot.z, 1); // "in broad daylight" per spec
+    showMessage('אגרוף!');
+  }
+}
+
+function seatOnMoto() {
+  scene.remove(character.group);
+  moto.group.add(character.group);
+  character.group.position.set(0, 0.21, -0.35);
+  character.group.rotation.set(0, 0, 0);
+  character.legL.rotation.x = -1.35;
+  character.legR.rotation.x = -1.35;
+  character.armL.rotation.x = -0.35;
+  character.armR.rotation.x = -0.35;
+}
+function unseatFromMoto() {
+  moto.group.remove(character.group);
+  scene.add(character.group);
+  character.group.rotation.set(0, foot.yaw, 0);
+  character.legL.rotation.x = 0;
+  character.legR.rotation.x = 0;
+  character.armL.rotation.x = 0;
+  character.armR.rotation.x = 0;
 }
 
 function tryEnterExit() {
@@ -655,7 +805,7 @@ function tryEnterExit() {
       showMessage('נכנסת למכונית — F ליציאה');
     } else if (dMoto <= ENTER_RANGE) {
       mode = 'moto';
-      character.group.visible = false;
+      seatOnMoto();
       showMessage('עלית לאופנוע — F ליציאה');
     }
   } else {
@@ -665,6 +815,7 @@ function tryEnterExit() {
       foot.z = state.z - Math.cos(state.yaw) * 3;
       foot.yaw = state.yaw;
       state.speed = 0;
+      if (mode === 'moto') unseatFromMoto();
       mode = 'foot';
       character.group.visible = true;
       showMessage('ירדת מהרכב');
@@ -736,6 +887,7 @@ function updateDayNight(dt) {
   for (const light of nightLights) light.intensity = n * light.__base;
   for (const key in buildingMaterials) buildingMaterials[key].emissiveIntensity = n * 0.9;
 
+  nightFactor = n;
   hudClock.textContent = n > 0.5 ? '🌙 לילה' : '☀️ יום';
 }
 
@@ -745,7 +897,7 @@ for (const l of nightLights) l.__base = l.distance === 20 ? 2.2 : l.distance ===
 // Mesh sync
 // ============================================================
 function syncMeshes(dt) {
-  car.group.position.set(carState.x, 0, carState.z);
+  car.group.position.set(carState.x, carState.y, carState.z);
   car.group.rotation.y = carState.yaw;
   const carSteerAngle = clamp((carState.steer || 0) * 0.32, -0.32, 0.32);
   for (const w of car.steerWheels) w.rotation.y = carSteerAngle;
@@ -753,14 +905,18 @@ function syncMeshes(dt) {
   for (const w of [...car.wheels, ...car.steerWheels]) w.rotation.x += wheelSpin;
   car.tailMat.emissiveIntensity = keys.down ? 3 : 0.6;
 
-  moto.group.position.set(motoState.x, 0, motoState.z);
+  moto.group.position.set(motoState.x, motoState.y, motoState.z);
   moto.group.rotation.y = motoState.yaw;
-  moto.group.rotation.z = damp(moto.group.rotation.z, -(motoState.steer || 0) * Math.min(Math.abs(motoState.speed) / 20, 1) * 0.45, 8, dt);
+  // lean angle = -steer * min(speed/25, 1) * 0.45 rad
+  moto.group.rotation.z = damp(moto.group.rotation.z, -(motoState.steer || 0) * Math.min(Math.abs(motoState.speed) / 25, 1) * 0.45, 8, dt);
+  moto.group.rotation.x = damp(moto.group.rotation.x, motoState.boosting ? -0.14 : 0, 6, dt);
   const motoSpin = motoState.speed * dt / 0.34;
   for (const w of moto.wheels) w.rotation.x += motoSpin;
 
-  character.group.position.set(foot.x, foot.y, foot.z);
-  character.group.rotation.y = foot.yaw;
+  if (mode !== 'moto') {
+    character.group.position.set(foot.x, foot.y, foot.z);
+    character.group.rotation.y = foot.yaw;
+  }
 }
 
 // ============================================================
@@ -799,6 +955,28 @@ function updateHud(dt) {
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) hudMsg.classList.remove('visible'); }
 }
 
+function updateWantedHud() {
+  const level = getWantedLevel();
+  hudWanted.classList.toggle('flash', isFlashing());
+  wantedStars.forEach((el, i) => el.classList.toggle('active', i < level));
+}
+
+function updateMissionHud(missionInfo, playerState) {
+  hudCash.textContent = '₪' + missionInfo.score;
+  if (!missionInfo.waypoint) {
+    missionHud.classList.add('hidden');
+    return;
+  }
+  missionHud.classList.remove('hidden');
+  const dx = missionInfo.waypoint.x - playerState.x;
+  const dz = missionInfo.waypoint.z - playerState.z;
+  const bearing = Math.atan2(dx, dz);
+  const rel = bearing - (playerState.yaw || 0) - Math.PI / 2;
+  missionArrow.style.transform = `rotate(${rel}rad)`;
+  missionDist.textContent = Math.round(missionInfo.waypoint.dist) + 'm';
+  missionTimer.textContent = Math.ceil(missionInfo.waypoint.timeLeft) + 's';
+}
+
 // ============================================================
 // Resize
 // ============================================================
@@ -823,10 +1001,33 @@ function stepSim(dt) {
     else if (mode === 'moto') updateVehicle(motoState, dt, MOTO_PARAMS);
     else updateFoot(dt);
     updatePedestrians(dt);
+    updateProps(dt);
+    updateLampPoles(dt);
+
+    const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+    const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
+    if (policeInfo.rammed) {
+      const activeState = mode === 'car' ? carState : motoState;
+      activeState.speed *= 0.85;
+      activeState.x += policeInfo.pushX * 0.3;
+      activeState.z += policeInfo.pushZ * 0.3;
+    }
+
+    const missionInfo = updateMissions(dt, playerState.x, playerState.z, mode !== 'foot');
+    lastMissionInfo = missionInfo;
+    if (missionInfo.splash && missionInfo.splash !== lastSplash) {
+      showMessage(missionInfo.splash);
+      lastSplash = missionInfo.splash;
+    } else if (!missionInfo.splash) {
+      lastSplash = null;
+    }
+
     updateCamera(dt);
     updateDayNight(dt);
     syncMeshes(dt);
     updateHud(dt);
+    updateWantedHud();
+    updateMissionHud(missionInfo, playerState);
     drawMinimap();
   }
   spaceEdge = false;
@@ -839,7 +1040,12 @@ function loop(ts) {
   lastTime = ts;
   dt = Math.min(dt, 1 / 20);
 
-  stepSim(dt);
+  if (slowMoTimer > 0) {
+    slowMoTimer -= dt;
+    stepSim(dt * 0.35);
+  } else {
+    stepSim(dt);
+  }
 
   composer.render();
   window.__frameCount = (window.__frameCount || 0) + 1;
@@ -850,6 +1056,7 @@ function loop(ts) {
 // State transitions
 // ============================================================
 function startGame() {
+  initAudio();
   running = true;
   paused = false;
   lastTime = null;
@@ -959,13 +1166,36 @@ window.__frameCount = 0;
 window.__debug = () => ({
   frames: window.__frameCount,
   mode, foot: { x: foot.x, z: foot.z, yaw: foot.yaw, speed: foot.speed },
-  car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed },
-  moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed },
+  car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting },
+  moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),
   distMoto: Math.hypot(foot.x - motoState.x, foot.z - motoState.z),
   pedCount: getPedestrians().length,
   peds: getPedestrians().map(p => ({ x: p.x, z: p.z, state: p.state })),
+  wanted: getWantedLevel(),
+  policeCars: getPoliceUnits().cars.length,
+  policeOfficers: getPoliceUnits().officers.length,
+  props: (() => {
+    const p = getProps();
+    return {
+      hydrantsBroken: p.hydrants.filter(h => h.broken).length,
+      cansBroken: p.cans.filter(c => c.broken).length,
+      conesBroken: p.cones.filter(c => c.broken).length,
+      firstHydrant: p.hydrants[0] ? { x: p.hydrants[0].x, z: p.hydrants[0].z } : null,
+      firstCan: p.cans[0] ? { x: p.cans[0].x, z: p.cans[0].z } : null,
+      firstCone: p.cones[0] ? { x: p.cones[0].x, z: p.cones[0].z } : null,
+    };
+  })(),
+  lampsBroken: lampPoles.filter(p => p.broken).length,
+  firstLamp: lampPoles[0] ? { x: lampPoles[0].x, z: lampPoles[0].z } : null,
+  flashing: isFlashing(),
+  missionScore: lastMissionInfo.score,
+  missionWaypoint: lastMissionInfo.waypoint,
+  markers: getMarkers(),
+  ramps: getRamps(),
+  nightFactor,
 });
+window.__setFootPos = (x, z, yaw = 0) => { foot.x = x; foot.z = z; foot.yaw = yaw; foot.speed = 0; return window.__debug(); };
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
 window.__setKeys = (patch) => Object.assign(keys, patch);
 window.__pressF = () => { fEdge = true; };
@@ -994,9 +1224,32 @@ window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
 window.__forceMode = (m) => { mode = m; character.group.visible = m === 'foot'; return window.__debug(); };
 window.__setVehiclePos = (which, x, z, yaw, speed = 0) => {
   const state = which === 'car' ? carState : motoState;
-  state.x = x; state.z = z; state.yaw = yaw; state.speed = speed;
+  state.x = x; state.z = z; state.yaw = yaw; state.speed = speed; state.y = 0; state.vy = 0;
   composer.render();
   return window.__debug();
+};
+window.__increaseWanted = (amount = 1) => {
+  const p = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+  increaseWanted(p.x, p.z, amount);
+  return window.__debug();
+};
+window.__testSetWanted = (level) => {
+  const p = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+  __testSetWanted(level, p.x, p.z);
+  return window.__debug();
+};
+window.__testStuntJump = (x, z, yaw, speed, frames = 240) => {
+  mode = 'car';
+  carState.x = x; carState.z = z; carState.yaw = yaw; carState.speed = speed; carState.y = 0; carState.vy = 0;
+  keys.up = true;
+  let maxY = 0;
+  for (let i = 0; i < frames; i++) {
+    stepSim(1 / 60);
+    maxY = Math.max(maxY, carState.y);
+  }
+  keys.up = false;
+  composer.render();
+  return { maxY, debug: window.__debug(), hudMsgText: hudMsg.textContent, hudMsgVisible: hudMsg.classList.contains('visible') };
 };
 window.__driveHitNearestPed = (maxIters = 600) => {
   const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
@@ -1015,7 +1268,7 @@ window.__driveHitNearestPed = (maxIters = 600) => {
     keys.left = diff > 0.05; keys.right = diff < -0.05;
     for (let f = 0; f < 3; f++) stepSim(1 / 60);
   }
-  keys.left = keys.right = false;
+  keys.up = keys.left = keys.right = false;
   composer.render();
   return window.__debug();
 };
@@ -1031,7 +1284,7 @@ window.__driveTo = (targetX, targetZ, within, maxIters = 400) => {
     keys.left = diff > 0.05; keys.right = diff < -0.05;
     for (let f = 0; f < 4; f++) stepSim(1 / 60);
   }
-  keys.left = keys.right = false;
+  keys.up = keys.left = keys.right = false;
   composer.render();
   return window.__debug();
 };
