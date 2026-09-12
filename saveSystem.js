@@ -9,6 +9,9 @@ const DEFAULTS = {
   carUpgrades: { accel: 0, maxV: 0, steerSpeed: 0 },
   motoUpgrades: { accel: 0, maxV: 0, steerSpeed: 0 },
   outfit: { shirt: '#2f5fa8', pants: '#33384a' },
+  ownedTiers: [1],
+  activeVehicle: 'car',
+  lastLocation: null,
 };
 
 let state = { ...DEFAULTS };

@@ -17,6 +17,8 @@ import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
+import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation } from './safehouse.js';
+import { getSave } from './saveSystem.js';
 
 // ============================================================
 // Constants
@@ -261,6 +263,8 @@ function tryPunch() {
   }
 }
 
+// returns whether the F-press was consumed by entering/exiting a vehicle, so
+// stepSim knows when to fall through to the safehouse "for sale" interaction
 function tryEnterExit() {
   if (mode === 'foot') {
     const dCar = Math.hypot(foot.x - carState.x, foot.z - carState.z);
@@ -268,12 +272,17 @@ function tryEnterExit() {
     if (dCar <= ENTER_RANGE && dCar <= dMoto) {
       mode = 'car';
       character.group.visible = false;
+      setActiveVehicle('car');
       showMessage('נכנסת למכונית — F ליציאה');
+      return true;
     } else if (dMoto <= ENTER_RANGE) {
       mode = 'moto';
       seatOnMoto(scene, character, moto.group);
+      setActiveVehicle('moto');
       showMessage('עלית לאופנוע — F ליציאה');
+      return true;
     }
+    return false;
   } else {
     const state = mode === 'car' ? carState : motoState;
     if (Math.abs(state.speed) <= MAX_EXIT_SPEED) {
@@ -288,6 +297,7 @@ function tryEnterExit() {
     } else {
       showMessage('האט כדי לצאת');
     }
+    return true;
   }
 }
 
@@ -446,6 +456,7 @@ function teleportToVehicle(which) {
     if (which === 'moto') { mode = 'moto'; seatOnMoto(scene, character, moto.group); }
     else { mode = 'car'; character.group.visible = false; }
   }
+  setActiveVehicle(which);
   closeAllPanels();
   showMessage(which === 'car' ? 'המכונית הוזמנה' : 'האופנוע הוזמן');
 }
@@ -471,14 +482,33 @@ initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScor
 
 initCharacterCustomizer(panelCustomizer, { shirtMat: character.shirtMat, pantsMat: character.pantsMat });
 
+initSafehouse(scene, THREE, {
+  getScore,
+  spendCash,
+  showMessage,
+  openWardrobe: () => { closeAllPanels(); panelCustomizer.classList.remove('hidden'); },
+  getPlayerState: () => {
+    const state = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+    return { mode, x: state.x, z: state.z, yaw: state.yaw };
+  },
+});
+
+// teleports the player to their highest-tier owned property and parks their
+// active saved vehicle in its driveway (unless they're already riding it in,
+// in which case it's already parked at the arrival spot itself)
 function goHome() {
-  const HOME = { x: 0, z: 20, yaw: Math.PI };
-  if (mode === 'foot') { foot.x = HOME.x; foot.z = HOME.z; foot.yaw = HOME.yaw; foot.y = 0; foot.vy = 0; foot.speed = 0; }
+  const home = getHomeLocation();
+  if (mode === 'foot') { foot.x = home.x; foot.z = home.z; foot.yaw = home.yaw; foot.y = 0; foot.vy = 0; foot.speed = 0; }
   else {
     const state = mode === 'car' ? carState : motoState;
-    state.x = HOME.x; state.z = HOME.z; state.yaw = HOME.yaw; state.y = 0; state.vy = 0; state.speed = 0;
+    state.x = home.x; state.z = home.z; state.yaw = home.yaw; state.y = 0; state.vy = 0; state.speed = 0;
   }
-  showMessage('חזרת לבסיס');
+  const active = getSave().activeVehicle || 'car';
+  if (!(mode !== 'foot' && mode === active)) {
+    const vState = active === 'car' ? carState : motoState;
+    vState.x = home.gx; vState.z = home.gz; vState.yaw = home.yaw; vState.y = 0; vState.vy = 0; vState.speed = 0;
+  }
+  showMessage(`חזרת ל${home.label}`);
 }
 
 let muted = false;
@@ -512,7 +542,11 @@ window.addEventListener('resize', resize);
 // Main loop
 // ============================================================
 function stepSim(dt) {
-  if (fEdge) { tryEnterExit(); fEdge = false; }
+  if (fEdge) {
+    const handled = tryEnterExit();
+    if (!handled) trySafehousePurchase(foot.x, foot.z);
+    fEdge = false;
+  }
   if (punchEdge) { tryPunch(); punchEdge = false; }
 
   if (!paused) {
@@ -522,6 +556,7 @@ function stepSim(dt) {
     updatePedestrians(dt);
     updateProps(dt);
     updateLampPoles(dt);
+    updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
 
     const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
