@@ -7,7 +7,7 @@ import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from '
 import { initAudio, playPunch, setMuted } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
-import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash } from './missions.js';
+import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash } from './missions.js';
 import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
@@ -18,13 +18,14 @@ import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
-import { initLandmark, updateLandmark, getLandmarkAABB } from './landmarks.js';
+import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
+import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z } from './prison.js';
 import { getSave } from './saveSystem.js';
 
 // ============================================================
 // Constants
 // ============================================================
-const GRID = 12;                 // city blocks per side
+const GRID = 14;                 // city blocks per side
 const BLOCK = 40;                // meters, block pitch
 const STREET_W = 10;              // meters, street width
 const LOT = BLOCK - STREET_W;     // building footprint size
@@ -85,6 +86,11 @@ const gpsHud = document.getElementById('gps-hud');
 const gpsArrow = document.getElementById('gps-arrow');
 const gpsDist = document.getElementById('gps-dist');
 const gpsCancel = document.getElementById('gps-cancel');
+
+const prisonHud = document.getElementById('prison-hud');
+const prisonText = document.getElementById('prison-text');
+const prisonStatus = document.getElementById('prison-status');
+const arrestWarning = document.getElementById('arrest-warning');
 
 const sideMenu = document.getElementById('side-menu');
 const panelGarage = document.getElementById('panel-garage');
@@ -151,15 +157,91 @@ scene.add(dirLight.target);
 // ============================================================
 // City, nature, vehicles, character
 // ============================================================
-const cityOpts = { grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED, skipBlocks: [{ bx: 4, bz: 4 }, { bx: 8, bz: 8 }] };
+// skip-block reservations are computed from fixed WORLD coordinates rather
+// than hardcoded block indices, so a park/landmark/compound stays aligned
+// with the procedural city grid no matter what GRID is set to
+function blockIndexOf(worldX) { return Math.round((worldX + CITY_HALF) / BLOCK - 0.5); }
+const PRISON_SKIP_BLOCKS = [];
+{
+  const pbx = blockIndexOf(PRISON_X), pbz = blockIndexOf(PRISON_Z);
+  for (let bx = pbx - 1; bx <= pbx + 1; bx++) for (let bz = pbz - 1; bz <= pbz + 1; bz++) PRISON_SKIP_BLOCKS.push({ bx, bz });
+}
+const cityOpts = {
+  grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED,
+  skipBlocks: [
+    { bx: 4, bz: 4 }, // central park -- natureEngine.buildCentralPark uses this same fixed block index
+    { bx: blockIndexOf(LANDMARK_X), bz: blockIndexOf(LANDMARK_Z) },
+    ...PRISON_SKIP_BLOCKS,
+  ],
+};
 const cityArch = initCityArchitecture(scene, THREE, cityOpts);
-const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles } = cityArch;
+const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles, pois } = cityArch;
 // the safehouse structures aren't part of cityArchitecture's own generation,
 // so they were never in this list -- without this, vehicles and the player
 // on foot could walk/drive straight through the safehouse buildings
 buildingAABBs.push(...getHouseAABBs(BLOCK, CITY_HALF));
 buildingAABBs.push(getLandmarkAABB(BLOCK, CITY_HALF));
 initLandmark(scene, THREE);
+buildingAABBs.push(...getPrisonWallAABBs(BLOCK, CITY_HALF));
+initPrison(scene, THREE);
+
+// 5m arrest-range ring, drawn flat on the ground around the player and only
+// shown while a police car is within it (see stepSim's policeInfo handling)
+const arrestRingMat = new THREE.MeshBasicMaterial({ color: '#ff3030', transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+const arrestRing = new THREE.Mesh(new THREE.RingGeometry(4.85, 5, 48), arrestRingMat);
+arrestRing.rotation.x = -Math.PI / 2;
+arrestRing.position.y = 0.05;
+arrestRing.visible = false;
+scene.add(arrestRing);
+
+let inPrison = false;
+let activeMission = null;
+let missionTargetMesh = null;
+
+function showMissionTargetBeacon(x, z) {
+  if (missionTargetMesh) scene.remove(missionTargetMesh);
+  const geo = new THREE.CylinderGeometry(1.2, 1.2, 0.15, 16);
+  const mat = new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffd23f', emissiveIntensity: 1.6, transparent: true, opacity: 0.8 });
+  missionTargetMesh = new THREE.Mesh(geo, mat);
+  missionTargetMesh.position.set(x, 0.1, z);
+  scene.add(missionTargetMesh);
+}
+function hideMissionTargetBeacon() {
+  if (missionTargetMesh) { scene.remove(missionTargetMesh); missionTargetMesh = null; }
+}
+
+// called when police.js reports an arrest (5m ring held for 4s straight)
+function startPrisonMission() {
+  inPrison = true;
+  activeMission = pickRandomMission();
+  const entry = getPrisonEntryPoint();
+  mode = 'foot';
+  character.group.visible = true;
+  foot.x = entry.x; foot.z = entry.z; foot.yaw = entry.yaw; foot.y = 0; foot.vy = 0; foot.speed = 0;
+  const target = getMissionTargetWorld(activeMission);
+  showMissionTargetBeacon(target.x, target.z);
+  prisonHud.classList.remove('hidden');
+  prisonText.textContent = activeMission.title + ' — ' + activeMission.text;
+  prisonStatus.textContent = '';
+  showMessage('🚔 נעצרת ונכלאת!');
+}
+
+function caughtByGuard() {
+  const entry = getPrisonEntryPoint();
+  foot.x = entry.x; foot.z = entry.z; foot.yaw = entry.yaw; foot.speed = 0;
+  showMessage('השומר תפס אותך! חזרת לנקודת ההתחלה.');
+}
+
+function escapePrison() {
+  inPrison = false;
+  hideMissionTargetBeacon();
+  prisonHud.classList.add('hidden');
+  activeMission = null;
+  const entry = getPrisonEntryPoint();
+  foot.x = entry.x + 14; foot.z = entry.z; foot.yaw = Math.PI / 2; foot.y = 0; foot.vy = 0; foot.speed = 0;
+  addCash(1000);
+  showMessage('🎉 ברחת מהכלא בהצלחה! +₪1000');
+}
 initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
 const car = buildCar(THREE, scene);
@@ -224,9 +306,13 @@ function resolveCircleVsBuildings(state, radius) {
       if (state.speed !== undefined) state.speed *= 0.5;
     }
   }
+  // soft edge: push back in and kill the outward velocity component so
+  // reaching the map edge feels like slowing at a wall, never a snap/jump
   const half = CITY_HALF - 4;
-  state.x = clamp(state.x, -half, half);
-  state.z = clamp(state.z, -half, half);
+  if (state.x > half) { state.x = half; if (state.speed !== undefined && Math.sin(state.yaw ?? 0) > 0) state.speed *= 0.3; }
+  else if (state.x < -half) { state.x = -half; if (state.speed !== undefined && Math.sin(state.yaw ?? 0) < 0) state.speed *= 0.3; }
+  if (state.z > half) { state.z = half; if (state.speed !== undefined && Math.cos(state.yaw ?? 0) > 0) state.speed *= 0.3; }
+  else if (state.z < -half) { state.z = -half; if (state.speed !== undefined && Math.cos(state.yaw ?? 0) < 0) state.speed *= 0.3; }
 }
 
 // context passed into the extracted vehicleController.updateVehicle() so it
@@ -487,7 +573,7 @@ function repairVehicle(which) {
 }
 initGarage(panelGarage, { teleportToVehicle, repairVehicle });
 
-initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, block: BLOCK, buildingAABBs }, {
+initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, block: BLOCK, buildingAABBs, pois }, {
   getMarkers,
   getPath: () => gpsPath,
   getPlayer: () => (mode === 'foot' ? foot : (mode === 'car' ? carState : motoState)),
@@ -606,6 +692,7 @@ function stepSim(dt) {
     updateLampPoles(dt);
     updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
     updateLandmark(dt);
+    updatePrison(dt);
 
     const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
@@ -620,6 +707,21 @@ function stepSim(dt) {
       foot.z += policeInfo.footPushZ * 1.5;
       foot.speed = 0;
       showMessage('נדרסת על ידי ניידת משטרה!');
+    }
+    arrestRing.visible = policeInfo.inArrestRange && !inPrison;
+    if (arrestRing.visible) {
+      arrestRing.position.x = playerState.x;
+      arrestRing.position.z = playerState.z;
+      arrestRingMat.opacity = 0.4 + policeInfo.arrestProgress * 0.5;
+    }
+    arrestWarning.classList.toggle('hidden', !arrestRing.visible);
+    if (policeInfo.arrested) startPrisonMission();
+
+    if (inPrison && activeMission) {
+      if (isSeenByGuard(foot.x, foot.z)) caughtByGuard();
+      const distToTarget = distanceToMissionTarget(activeMission, foot.x, foot.z);
+      if (distToTarget < TARGET_REACH_RADIUS) escapePrison();
+      else prisonStatus.textContent = `מרחק ליעד: ${Math.round(distToTarget)}מ'`;
     }
 
     const missionInfo = updateMissions(dt, playerState.x, playerState.z, mode !== 'foot');
@@ -688,7 +790,22 @@ function togglePause() {
 // ============================================================
 // Input
 // ============================================================
-function setKey(key, val) {
+// Uses e.code (physical key position) rather than e.key for the WASD block:
+// e.key reflects the active OS keyboard layout, so on a Hebrew layout the
+// physical W/A/S/D keys report Hebrew letters and silently stop working --
+// e.code ("KeyW" etc.) always names the physical key regardless of layout.
+function setKey(code, key, val) {
+  switch (code) {
+    case 'ArrowLeft': case 'KeyA': keys.left = val; return;
+    case 'ArrowRight': case 'KeyD': keys.right = val; return;
+    case 'ArrowUp': case 'KeyW': keys.up = val; return;
+    case 'ArrowDown': case 'KeyS': keys.down = val; return;
+    case 'ShiftLeft': case 'ShiftRight': keys.shift = val; return;
+    case 'Space': if (val && !keys.space) spaceEdge = true; keys.space = val; return;
+    case 'KeyF': if (val && !keys.f) fEdge = true; keys.f = val; return;
+    case 'KeyE': if (val && !keys.punch) punchEdge = true; keys.punch = val; return;
+  }
+  // fallback for the rare case a browser/device doesn't populate e.code
   switch (key) {
     case 'ArrowLeft': case 'a': case 'A': keys.left = val; break;
     case 'ArrowRight': case 'd': case 'D': keys.right = val; break;
@@ -701,11 +818,11 @@ function setKey(key, val) {
   }
 }
 window.addEventListener('keydown', (e) => {
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
-  if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') { togglePause(); return; }
-  setKey(e.key, true);
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Space'].includes(e.key) || ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.key === 'Escape' || e.code === 'KeyP') { togglePause(); return; }
+  setKey(e.code, e.key, true);
 });
-window.addEventListener('keyup', (e) => setKey(e.key, false));
+window.addEventListener('keyup', (e) => setKey(e.code, e.key, false));
 // right-click punches on desktop, per spec -- also block the browser's own
 // context menu on the canvas so a right-click doesn't pop that up instead
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -830,8 +947,20 @@ window.__debug = () => ({
     actionNames: Object.keys(character.actions),
     activeActionIsPlaying: character.activeAction ? character.activeAction.isRunning() : null,
   },
+  cash: getScore(),
+  prison: {
+    inPrison, arrestRingVisible: arrestRing.visible,
+    activeMission: activeMission ? { id: activeMission.id, title: activeMission.title } : null,
+  },
 });
 window.__setFootPos = (x, z, yaw = 0) => { foot.x = x; foot.z = z; foot.yaw = yaw; foot.speed = 0; return window.__debug(); };
+window.__testForceArrest = () => { startPrisonMission(); return window.__debug(); };
+window.__testMissionTarget = () => {
+  if (!activeMission) return null;
+  const t = getMissionTargetWorld(activeMission);
+  return { ...t, distToTarget: distanceToMissionTarget(activeMission, foot.x, foot.z) };
+};
+window.__isSeenByGuard = (x, z) => isSeenByGuard(x, z);
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
 window.__setKeys = (patch) => Object.assign(keys, patch);
 window.__setJoy = (x, y, active) => { joy.x = x; joy.y = y; joy.active = active; };

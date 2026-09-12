@@ -5,7 +5,7 @@
 // turn-by-turn route from the player's nearest intersection to the tapped
 // point; game.js walks the returned waypoint list one hop at a time via its
 // gps-hud arrow, advancing to the next hop on arrival.
-let canvas_, ctx_, world_, getters_, onWaypoint_;
+let canvas_, ctx_, tooltip_, world_, getters_, onWaypoint_;
 let graph_ = null;
 
 function buildRoadGraph(cityHalf, block) {
@@ -84,23 +84,70 @@ export function computeRoute(playerX, playerZ, destX, destZ) {
   return path.length ? path : [{ x: destX, z: destZ }];
 }
 
+// finds the closest tappable point (POI or marker) to a map-space (x,z)
+// click/hover, in world meters -- used for both the hover tooltip and to
+// make clicking directly on a POI feel like it "picked" that point
+function findNearestTappable(x, z, maxWorldDist) {
+  let best = null, bestD = maxWorldDist;
+  const pois = world_.pois || [];
+  for (const p of pois) {
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < bestD) { bestD = d; best = { name: p.name, kind: p.kind, x: p.x, z: p.z }; }
+  }
+  for (const m of getters_.getMarkers()) {
+    const d = Math.hypot(m.x - x, m.z - z);
+    if (d < bestD) { bestD = d; best = { name: m.kind === 'taxi' ? 'תחנת מונית' : 'יעד', kind: m.kind, x: m.x, z: m.z }; }
+  }
+  return best;
+}
+
+function showTooltip(worldPt, text) {
+  if (!tooltip_) return;
+  const w = canvas_.clientWidth, h = canvas_.clientHeight;
+  const scale = w / world_.citySize;
+  const px = (worldPt.x + world_.cityHalf) * scale;
+  const pz = (worldPt.z + world_.cityHalf) * (h / world_.citySize);
+  tooltip_.textContent = text;
+  tooltip_.style.left = px + 'px';
+  tooltip_.style.top = pz + 'px';
+  tooltip_.classList.remove('hidden');
+}
+function hideTooltip() {
+  if (tooltip_) tooltip_.classList.add('hidden');
+}
+
 export function initMapGPS(panelEl, world, getters, onWaypoint) {
   canvas_ = panelEl.querySelector('#map-canvas');
   ctx_ = canvas_.getContext('2d');
+  tooltip_ = panelEl.querySelector('#map-tooltip');
   world_ = world;
   getters_ = getters;
   onWaypoint_ = onWaypoint;
   graph_ = buildRoadGraph(world.cityHalf, world.block);
 
-  canvas_.addEventListener('pointerdown', (e) => {
+  const toWorld = (e) => {
     const rect = canvas_.getBoundingClientRect();
     const px = (e.clientX - rect.left) / rect.width;
     const py = (e.clientY - rect.top) / rect.height;
-    const x = px * world_.citySize - world_.cityHalf;
-    const z = py * world_.citySize - world_.cityHalf;
+    return { x: px * world_.citySize - world_.cityHalf, z: py * world_.citySize - world_.cityHalf };
+  };
+
+  canvas_.addEventListener('pointermove', (e) => {
+    const { x, z } = toWorld(e);
+    const hit = findNearestTappable(x, z, world_.block * 0.4);
+    if (hit) showTooltip(hit, hit.name);
+    else hideTooltip();
+  });
+  canvas_.addEventListener('pointerleave', hideTooltip);
+
+  canvas_.addEventListener('pointerdown', (e) => {
+    const { x, z } = toWorld(e);
+    const hit = findNearestTappable(x, z, world_.block * 0.4);
+    if (hit) showTooltip(hit, hit.name);
     const player = getters_.getPlayer();
-    const path = computeRoute(player.x, player.z, x, z);
-    onWaypoint_(path, { x, z });
+    const destX = hit ? hit.x : x, destZ = hit ? hit.z : z;
+    const path = computeRoute(player.x, player.z, destX, destZ);
+    onWaypoint_(path, { x: destX, z: destZ });
   });
 }
 
@@ -128,6 +175,17 @@ export function renderMapGPS() {
     ctx_.beginPath();
     ctx_.arc(p.x, p.z, 5, 0, Math.PI * 2);
     ctx_.fill();
+  }
+
+  for (const poi of (world_.pois || [])) {
+    const p = toPx(poi.x, poi.z);
+    ctx_.fillStyle = '#ff8a3d';
+    ctx_.strokeStyle = '#fff';
+    ctx_.lineWidth = 1;
+    ctx_.beginPath();
+    ctx_.arc(p.x, p.z, 4.5, 0, Math.PI * 2);
+    ctx_.fill();
+    ctx_.stroke();
   }
 
   const path = getters_.getPath ? getters_.getPath() : null;

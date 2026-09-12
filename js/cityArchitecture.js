@@ -11,6 +11,26 @@ export const DISTRICTS = {
 // top of it rather than instead of it, without changing ground footprints
 const HEIGHT_MULTIPLIERS = [0.93, 1.04, 1.12];
 
+// shared geometries for small rooftop/shop decorations: every building used
+// to allocate its own copy of these (identical dimensions every time), which
+// wasted memory and GPU buffer uploads at city scale -- one instance per
+// shape, reused across every building via .clone()-free shared references
+let sharedGeo = null;
+function getSharedGeo(THREE) {
+  if (sharedGeo) return sharedGeo;
+  sharedGeo = {
+    hvacSmall: new THREE.BoxGeometry(0.6, 0.4, 0.6),
+    antenna: new THREE.CylinderGeometry(0.04, 0.06, 2.4, 6),
+    towerLeg: new THREE.CylinderGeometry(0.04, 0.04, 1.2, 6),
+    tank: new THREE.CylinderGeometry(0.9, 0.9, 1.1, 10),
+    tankCap: new THREE.ConeGeometry(1.0, 0.5, 10),
+    hvacUnit: new THREE.BoxGeometry(0.8, 0.5, 0.8),
+    escLanding: new THREE.BoxGeometry(0.9, 0.06, 0.5),
+    awning: new THREE.BoxGeometry(1, 0.35, 1.4),
+  };
+  return sharedGeo;
+}
+
 const SHOP_NAMES = ['Blue Fig Cafe', 'Meridian Books', 'Harbor Market', 'The Rivet', 'Old Quarter Deli', 'Salt & Pine', 'Quay Flowers', 'Northline Music', "Cassie's Diner", 'Bay Cycles'];
 
 function mulberry32(seed) {
@@ -161,55 +181,61 @@ export function initCityArchitecture(scene, THREE, opts) {
   const buildingAABBs = [];
   const shopSigns = [];
   const nightLights = [];
+  const pois = [];
+  const awningMatShared = new THREE.MeshStandardMaterial({ color: '#c94f4f', roughness: 0.7 });
+
+  const hvacMatShared = new THREE.MeshStandardMaterial({ color: '#888', roughness: 0.7 });
+  const antennaMatShared = new THREE.MeshStandardMaterial({ color: '#333' });
+  const towerLegMatShared = new THREE.MeshStandardMaterial({ color: '#3a3a3a' });
+  const tankMatShared = new THREE.MeshStandardMaterial({ color: '#6b4a35', roughness: 0.85 });
+  const tankCapMatShared = new THREE.MeshStandardMaterial({ color: '#4a3527' });
+  const hvacUnitMatShared = new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.6, metalness: 0.3 });
+  const escMatShared = new THREE.MeshStandardMaterial({ color: '#2a2a2a', metalness: 0.6, roughness: 0.5 });
 
   function addRooftopAccents(group, rng, district, w, d, height, floorH) {
+    const geo = getSharedGeo(THREE);
     const roll = rng();
     if (district.hillside) {
-      const hvac = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.6), new THREE.MeshStandardMaterial({ color: '#888', roughness: 0.7 }));
+      // small rooftop accents: skip shadow-casting on them -- visually
+      // negligible shadow contribution, but each castShadow mesh is an
+      // extra draw call in the shadow pass, multiplied by every building
+      const hvac = new THREE.Mesh(geo.hvacSmall, hvacMatShared);
       hvac.position.set(w * 0.2, height + 0.2, d * 0.15);
-      hvac.castShadow = true;
       group.add(hvac);
       return;
     }
     if (roll < 0.3) {
       // antenna mast
-      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 2.4, 6), new THREE.MeshStandardMaterial({ color: '#333' }));
+      const antenna = new THREE.Mesh(geo.antenna, antennaMatShared);
       antenna.position.set(0, height + 1.2, 0);
-      antenna.castShadow = true;
       group.add(antenna);
     } else if (roll < 0.55) {
       // rooftop water tower (cylinder tank + cone cap on stilts)
-      const legMat = new THREE.MeshStandardMaterial({ color: '#3a3a3a' });
       for (const [lx, lz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 6), legMat);
+        const leg = new THREE.Mesh(geo.towerLeg, towerLegMatShared);
         leg.position.set(lx, height + 0.6, lz);
         group.add(leg);
       }
-      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.1, 10), new THREE.MeshStandardMaterial({ color: '#6b4a35', roughness: 0.85 }));
+      const tank = new THREE.Mesh(geo.tank, tankMatShared);
       tank.position.set(0, height + 1.75, 0);
-      tank.castShadow = true;
       group.add(tank);
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(1.0, 0.5, 10), new THREE.MeshStandardMaterial({ color: '#4a3527' }));
+      const cap = new THREE.Mesh(geo.tankCap, tankCapMatShared);
       cap.position.set(0, height + 2.55, 0);
       group.add(cap);
     } else if (roll < 0.8) {
       // HVAC unit cluster
-      const hvacMat = new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.6, metalness: 0.3 });
       for (let i = 0; i < 2; i++) {
-        const hvac = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), hvacMat);
+        const hvac = new THREE.Mesh(geo.hvacUnit, hvacUnitMatShared);
         hvac.position.set((i - 0.5) * w * 0.3, height + 0.25, d * 0.2);
-        hvac.castShadow = true;
         group.add(hvac);
       }
     }
     // fire escape: a zigzag of small landings down one side, on mid-rise blocks
     if ((district === DISTRICTS.oldquarter || district === DISTRICTS.harbor) && rng() < 0.4 && height > floorH * 2) {
-      const escMat = new THREE.MeshStandardMaterial({ color: '#2a2a2a', metalness: 0.6, roughness: 0.5 });
       const flights = Math.min(6, Math.floor(height / floorH));
       for (let f = 0; f < flights; f++) {
-        const landing = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.5), escMat);
+        const landing = new THREE.Mesh(geo.escLanding, escMatShared);
         landing.position.set(w / 2 + 0.45, (f + 0.5) * floorH, (f % 2 === 0 ? -0.3 : 0.3));
-        landing.castShadow = true;
         group.add(landing);
       }
     }
@@ -253,12 +279,13 @@ export function initCityArchitecture(scene, THREE, opts) {
 
     const isShop = overrides?.shop ?? (rng() < district.shop);
     if (isShop) {
-      const awning = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.35, 1.4), new THREE.MeshStandardMaterial({ color: '#c94f4f', roughness: 0.7 }));
+      const geo = getSharedGeo(THREE);
+      const awning = new THREE.Mesh(geo.awning, awningMatShared);
+      awning.scale.set(w * 0.9, 1, 1);
       awning.position.set(0, floorH * 0.78, d / 2 + 0.6);
-      awning.castShadow = true;
       group.add(awning);
 
-      const name = SHOP_NAMES[Math.floor(rng() * SHOP_NAMES.length)];
+      const name = overrides?.name ?? SHOP_NAMES[Math.floor(rng() * SHOP_NAMES.length)];
       const signCnv = document.createElement('canvas');
       signCnv.width = 256; signCnv.height = 64;
       const sg = signCnv.getContext('2d');
@@ -272,6 +299,7 @@ export function initCityArchitecture(scene, THREE, opts) {
       sign.position.set(0, floorH * 0.55, d / 2 + 0.05);
       group.add(sign);
       shopSigns.push(signMat);
+      if (overrides?.name) pois.push({ name, kind: overrides.poiKind || 'shop', x: cx, z: cz });
 
       const lamp = new THREE.PointLight('#ffce94', 0, 8);
       lamp.position.set(0, 2.2, d / 2 + 1.2);
@@ -302,6 +330,22 @@ export function initCityArchitecture(scene, THREE, opts) {
     nightLights.push(beacon);
   }
   addBuilding(9, 2, { floors: 4, shop: true });
+
+  // named points of interest: distinct, findable shops scattered across the
+  // city (rather than the anonymous random-named shops every other building
+  // may get), so the map has real destinations to show tooltips for
+  const namedPOIs = [
+    { bx: 1, bz: 10, name: 'Garage Motors — מוסך ומכוניות', poiKind: 'garage' },
+    { bx: 10, bz: 1, name: "Iron Gym — חדר כושר", poiKind: 'gym' },
+    { bx: 6, bz: 10, name: 'Bay Cycles — חנות אופנועים', poiKind: 'bikes' },
+    { bx: 10, bz: 10, name: 'Meridian Outfitters — ביגוד', poiKind: 'clothes' },
+    { bx: 1, bz: 1, name: "Cassie's Diner — מסעדה", poiKind: 'food' },
+    { bx: 5, bz: 0, name: 'Northline Guns — חנות נשק', poiKind: 'guns' },
+  ];
+  for (const p of namedPOIs) {
+    if (skipSet.has(`${p.bx},${p.bz}`)) continue;
+    addBuilding(p.bx, p.bz, { shop: true, name: p.name, poiKind: p.poiKind, floors: 3 });
+  }
 
   // street lamps at a subset of intersections (hit-reactive: tip over + fade when rammed)
   const lampGeo = new THREE.CylinderGeometry(0.08, 0.08, 8, 6);
@@ -361,7 +405,7 @@ export function initCityArchitecture(scene, THREE, opts) {
   }
 
   return {
-    ground, buildingAABBs, lampPoles, nightLights, shopSigns,
+    ground, buildingAABBs, lampPoles, nightLights, shopSigns, pois,
     buildingMaterials, hitLampPoles, updateLampPoles,
   };
 }

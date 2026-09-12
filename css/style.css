@@ -180,6 +180,47 @@ body {
 }
 
 /* ---------- GPS waypoint HUD ---------- */
+#prison-hud {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 11, 18, 0.8);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 95, 95, 0.5);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 12px;
+  max-width: 320px;
+  text-align: center;
+  z-index: 6;
+}
+#prison-hud.hidden { display: none; }
+#prison-title { color: #ff5f5f; font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+#prison-text { color: #eee; line-height: 1.5; margin-bottom: 4px; }
+#prison-status { color: #ffd23f; font-weight: bold; font-size: 12px; }
+
+#arrest-warning {
+  position: absolute;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 40, 40, 0.25);
+  border: 1px solid rgba(255, 95, 95, 0.7);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
+  animation: arrest-pulse 0.6s ease-in-out infinite;
+  z-index: 6;
+}
+#arrest-warning.hidden { display: none; }
+@keyframes arrest-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 #gps-hud {
   position: absolute;
   top: 60px;
@@ -476,11 +517,32 @@ body {
   align-items: center;
 }
 
+.map-canvas-wrap {
+  position: relative;
+  width: 100%;
+}
+
 #map-canvas {
   width: 100%;
   aspect-ratio: 1 / 1;
   border-radius: 10px;
   touch-action: none;
+  display: block;
+}
+
+.map-tooltip {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(-50%, -120%);
+  background: rgba(10, 14, 23, 0.95);
+  border: 1px solid #ffce94;
+  color: #ffce94;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 5;
 }
 
 .map-hint {

@@ -8,6 +8,10 @@ let evadeTimer = 0;
 let flashTimer = 0;
 let hitCooldown = 0;
 let roadblockTimer = 0;
+let arrestTimer = 0;
+
+const ARREST_RADIUS = 5;
+const ARREST_SECONDS = 4;
 
 const CAR_KIND = {
   cruiser: { maxSpeed: 24, accel: 18, color: '#0c0c10' },
@@ -173,10 +177,12 @@ export function updatePolice(dt, playerState, isVehicle) {
   if (wanted <= 0) {
     if (cars.length || officers.length) despawnAll();
     setSirenActive(false);
-    return { wanted: 0, flashing: false, nearestDist: Infinity, rammed: false, runOverFoot: false };
+    arrestTimer = 0;
+    return { wanted: 0, flashing: false, nearestDist: Infinity, rammed: false, runOverFoot: false, arrestProgress: 0, inArrestRange: false, arrested: false };
   }
 
   let nearestDist = Infinity;
+  let nearestCarDist = Infinity;
   let rammed = false;
   let pushX = 0, pushZ = 0;
   let runOverFoot = false;
@@ -186,6 +192,7 @@ export function updatePolice(dt, playerState, isVehicle) {
     const dx = playerState.x - c.x, dz = playerState.z - c.z;
     const dist = Math.hypot(dx, dz);
     nearestDist = Math.min(nearestDist, dist);
+    nearestCarDist = Math.min(nearestCarDist, dist);
 
     if (!c.roadblock) {
       const spec = CAR_KIND[c.kind];
@@ -275,7 +282,26 @@ export function updatePolice(dt, playerState, isVehicle) {
 
   setSirenActive(true, clamp(1 - nearestDist / 60, 0.15, 1));
 
-  return { wanted, flashing: flashTimer > 0, nearestDist, rammed, pushX, pushZ, runOverFoot, footPushX, footPushZ };
+  // arrest: a cruiser sitting inside the 5m ring around the player for
+  // ARREST_SECONDS straight makes the catch. Any exit resets the clock --
+  // "continuously" per spec, not accumulated over multiple close calls.
+  let arrested = false;
+  if (nearestCarDist <= ARREST_RADIUS) {
+    arrestTimer += dt;
+    if (arrestTimer >= ARREST_SECONDS) {
+      arrested = true;
+      arrestTimer = 0;
+      wanted = 0;
+      despawnAll();
+      setSirenActive(false);
+    }
+  } else {
+    arrestTimer = 0;
+  }
+  const arrestProgress = clamp(arrestTimer / ARREST_SECONDS, 0, 1);
+  const inArrestRange = nearestCarDist <= ARREST_RADIUS;
+
+  return { wanted, flashing: flashTimer > 0, nearestDist, rammed, pushX, pushZ, runOverFoot, footPushX, footPushZ, arrestProgress, inArrestRange, arrested };
 }
 
 export function getPoliceUnits() { return { cars, officers }; }

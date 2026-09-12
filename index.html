@@ -47,6 +47,14 @@ if ('serviceWorker' in navigator) {
       <span id="mission-timer">0s</span>
     </div>
 
+    <div id="prison-hud" class="hidden">
+      <div id="prison-title">🚨 משימת בריחה</div>
+      <div id="prison-text"></div>
+      <div id="prison-status"></div>
+    </div>
+
+    <div id="arrest-warning" class="hidden">⚠️ ניידת בטווח מעצר!</div>
+
     <div id="gps-hud" class="hidden">
       <span id="gps-arrow">➤</span>
       <span id="gps-dist">0m</span>
@@ -82,8 +90,11 @@ if ('serviceWorker' in navigator) {
       <div class="panel-card panel-card-map">
         <button class="panel-close" title="סגור">✕</button>
         <h2>📍 מפה</h2>
-        <canvas id="map-canvas" width="600" height="600"></canvas>
-        <p class="map-hint">הקישו על המפה כדי להציב יעד ניווט</p>
+        <div class="map-canvas-wrap">
+          <canvas id="map-canvas" width="600" height="600"></canvas>
+          <div id="map-tooltip" class="map-tooltip hidden"></div>
+        </div>
+        <p class="map-hint">הקישו על המפה כדי להציב יעד ניווט • רחפו/הקישו על נקודת עניין לפרטים</p>
       </div>
     </div>
 
