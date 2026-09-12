@@ -77,6 +77,15 @@ function addCash(amount) {
   saveState({ cash: score });
 }
 
+// used by the mod shop: returns false (and spends nothing) if the player
+// can't afford it, so callers never need to check getScore() first
+export function spendCash(amount) {
+  if (score < amount) return false;
+  score -= amount;
+  saveState({ cash: score });
+  return true;
+}
+
 export function updateMissions(dt, playerX, playerZ, isVehicle) {
   const pulse = 0.6 + Math.sin(performance.now() * 0.004) * 0.4;
   for (const m of markers) m.mesh.material.emissiveIntensity = 1.2 + pulse;

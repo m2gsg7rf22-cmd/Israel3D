@@ -35,7 +35,104 @@
       <span id="mission-timer">0s</span>
     </div>
 
+    <div id="gps-hud" class="hidden">
+      <span id="gps-arrow">➤</span>
+      <span id="gps-dist">0m</span>
+      <button id="gps-cancel" title="בטל ניווט">✕</button>
+    </div>
+
     <div id="hud-msg"></div>
+
+    <div id="side-menu" class="side-menu hidden">
+      <button id="menu-garage" class="side-btn side-btn-cyan" title="מוסך">🚗</button>
+      <button id="menu-map" class="side-btn side-btn-grey" title="מפה וניווט">📍</button>
+      <button id="menu-shop" class="side-btn side-btn-yellow" title="חנות שיפורים">🛠️<span id="shop-badge" class="badge hidden"></span></button>
+      <button id="menu-home" class="side-btn side-btn-blue" title="חזרה לבסיס">🏠</button>
+      <button id="menu-settings" class="side-btn side-btn-grey" title="הגדרות">⚙️</button>
+      <button id="menu-wardrobe" class="side-btn side-btn-grey" title="התאמת דמות">🎨</button>
+    </div>
+
+    <div id="panel-garage" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🚗 מוסך</h2>
+        <div class="garage-row"><span>מכונית</span>
+          <button id="garage-car-spawn" class="btn-small">טלפורט</button>
+          <button id="garage-car-repair" class="btn-small">תיקון</button>
+        </div>
+        <div class="garage-row"><span>אופנוע</span>
+          <button id="garage-moto-spawn" class="btn-small">טלפורט</button>
+          <button id="garage-moto-repair" class="btn-small">תיקון</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-map" class="panel panel-map hidden">
+      <div class="panel-card panel-card-map">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>📍 מפה</h2>
+        <canvas id="map-canvas" width="600" height="600"></canvas>
+        <p class="map-hint">הקישו על המפה כדי להציב יעד ניווט</p>
+      </div>
+    </div>
+
+    <div id="panel-shop" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🛠️ חנות שיפורים</h2>
+        <div class="shop-cash">מזומן: <b id="shop-cash">₪0</b></div>
+        <div class="shop-section">
+          <h3>🚗 מכונית</h3>
+          <div class="shop-row" data-kind="car" data-key="accel"><span>מנוע (תאוצה)</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="car" data-key="maxV"><span>מהירות מקס'</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="car" data-key="steerSpeed"><span>שליטה בהיגוי</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+        </div>
+        <div class="shop-section">
+          <h3>🏍️ אופנוע</h3>
+          <div class="shop-row" data-kind="moto" data-key="accel"><span>מנוע (תאוצה)</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="moto" data-key="maxV"><span>מהירות מקס'</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="moto" data-key="steerSpeed"><span>שליטה בהיגוי</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-customizer" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🎨 התאמת דמות</h2>
+        <div class="cust-section">
+          <h3>חולצה</h3>
+          <div class="swatch-row" data-target="shirt">
+            <button class="swatch" style="background:#2f5fa8" data-color="#2f5fa8"></button>
+            <button class="swatch" style="background:#c0392b" data-color="#c0392b"></button>
+            <button class="swatch" style="background:#27ae60" data-color="#27ae60"></button>
+            <button class="swatch" style="background:#f1c40f" data-color="#f1c40f"></button>
+            <button class="swatch" style="background:#8e44ad" data-color="#8e44ad"></button>
+            <button class="swatch" style="background:#1c1c1c" data-color="#1c1c1c"></button>
+          </div>
+        </div>
+        <div class="cust-section">
+          <h3>מכנסיים</h3>
+          <div class="swatch-row" data-target="pants">
+            <button class="swatch" style="background:#33384a" data-color="#33384a"></button>
+            <button class="swatch" style="background:#1a1a1a" data-color="#1a1a1a"></button>
+            <button class="swatch" style="background:#5b3a29" data-color="#5b3a29"></button>
+            <button class="swatch" style="background:#7f8c8d" data-color="#7f8c8d"></button>
+            <button class="swatch" style="background:#2c3e50" data-color="#2c3e50"></button>
+            <button class="swatch" style="background:#c0392b" data-color="#c0392b"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-settings" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>⚙️ הגדרות</h2>
+        <button id="settings-mute" class="btn-small btn-wide">🔈 השתק צלילים</button>
+        <button id="settings-skip-time" class="btn-small btn-wide">⏩ דלג בזמן היום</button>
+      </div>
+    </div>
 
     <div id="screen-start" class="screen">
       <h1>🏙️ OPEN CITY <span>Meridian Bay</span></h1>

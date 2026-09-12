@@ -36,7 +36,7 @@ export function buildCharacter(THREE, scene) {
   const armR = makeLimb(shirt, 0.6, 0.28, 'arm');
 
   scene.add(group);
-  return { group, legL, legR, armL, armR };
+  return { group, legL, legR, armL, armR, shirtMat: shirt, pantsMat: pants };
 }
 
 // walk/run swing cycle shared by updateFoot each frame

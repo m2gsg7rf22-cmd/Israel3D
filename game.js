@@ -4,15 +4,19 @@ import { RenderPass } from './vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
-import { initAudio, playPunch } from './audio.js';
+import { initAudio, playPunch, setMuted } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
-import { initMissions, updateMissions, getMarkers, getRamps } from './missions.js';
+import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash } from './missions.js';
 import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
 import { buildCharacter, applyLocomotionSwing, seatOnMoto, unseatFromMoto } from './characterRig.js';
 import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } from './cameraRig.js';
+import { initGarage } from './garage.js';
+import { initMapGPS, renderMapGPS } from './mapGPS.js';
+import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
+import { initCharacterCustomizer } from './characterCustomizer.js';
 
 // ============================================================
 // Constants
@@ -73,6 +77,20 @@ const missionHud = document.getElementById('mission-hud');
 const missionArrow = document.getElementById('mission-arrow');
 const missionDist = document.getElementById('mission-dist');
 const missionTimer = document.getElementById('mission-timer');
+
+const gpsHud = document.getElementById('gps-hud');
+const gpsArrow = document.getElementById('gps-arrow');
+const gpsDist = document.getElementById('gps-dist');
+const gpsCancel = document.getElementById('gps-cancel');
+
+const sideMenu = document.getElementById('side-menu');
+const panelGarage = document.getElementById('panel-garage');
+const panelMap = document.getElementById('panel-map');
+const panelShop = document.getElementById('panel-shop');
+const panelCustomizer = document.getElementById('panel-customizer');
+const panelSettings = document.getElementById('panel-settings');
+const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings];
+const shopBadge = document.getElementById('shop-badge');
 
 const screenStart = document.getElementById('screen-start');
 const screenPause = document.getElementById('screen-pause');
@@ -153,6 +171,7 @@ initMissions(scene, THREE);
 const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const motoState = { x: -6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const foot = { x: 0, z: 20, yaw: Math.PI, y: 0, vy: 0, speed: 0, grounded: true, phase: 0 };
+let gpsWaypoint = null;
 
 let mode = 'foot';
 let dayTime = 0.4;
@@ -388,6 +407,96 @@ function updateMissionHud(missionInfo, playerState) {
 }
 
 // ============================================================
+// GPS waypoint HUD (set from the fullscreen map, tracked every frame)
+// ============================================================
+function updateGpsHud(playerState) {
+  if (!gpsWaypoint) { gpsHud.classList.add('hidden'); return; }
+  const dx = gpsWaypoint.x - playerState.x, dz = gpsWaypoint.z - playerState.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 8) {
+    gpsWaypoint = null;
+    gpsHud.classList.add('hidden');
+    showMessage('הגעת ליעד הניווט!');
+    return;
+  }
+  gpsHud.classList.remove('hidden');
+  const bearing = Math.atan2(dx, dz);
+  const rel = bearing - (playerState.yaw || 0) - Math.PI / 2;
+  gpsArrow.style.transform = `rotate(${rel}rad)`;
+  gpsDist.textContent = Math.round(dist) + 'm';
+}
+gpsCancel.addEventListener('click', () => { gpsWaypoint = null; gpsHud.classList.add('hidden'); });
+
+// ============================================================
+// Left-side menu: garage / map / mod shop / home / settings / wardrobe
+// ============================================================
+function closeAllPanels() { for (const p of allPanels) p.classList.add('hidden'); }
+document.querySelectorAll('.panel-close').forEach((b) => b.addEventListener('click', closeAllPanels));
+for (const p of allPanels) {
+  p.addEventListener('pointerdown', (e) => { if (e.target === p) closeAllPanels(); });
+}
+
+function teleportToVehicle(which) {
+  const state = which === 'car' ? carState : motoState;
+  const ref = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  state.x = ref.x + Math.sin(ref.yaw) * 4;
+  state.z = ref.z + Math.cos(ref.yaw) * 4;
+  state.yaw = ref.yaw; state.y = 0; state.vy = 0; state.speed = 0;
+  if (mode === 'foot') {
+    if (which === 'moto') { mode = 'moto'; seatOnMoto(scene, character, moto.group); }
+    else { mode = 'car'; character.group.visible = false; }
+  }
+  closeAllPanels();
+  showMessage(which === 'car' ? 'המכונית הוזמנה' : 'האופנוע הוזמן');
+}
+function repairVehicle(which) {
+  const state = which === 'car' ? carState : motoState;
+  state.y = 0; state.vy = 0; state.speed = 0;
+  closeAllPanels();
+  showMessage('תוקן!');
+}
+initGarage(panelGarage, { teleportToVehicle, repairVehicle });
+
+initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, buildingAABBs }, {
+  getMarkers,
+  getWaypoint: () => gpsWaypoint,
+  getPlayer: () => (mode === 'foot' ? foot : (mode === 'car' ? carState : motoState)),
+}, (x, z) => {
+  gpsWaypoint = { x, z };
+  closeAllPanels();
+  showMessage('יעד ניווט הוגדר');
+});
+
+initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge });
+
+initCharacterCustomizer(panelCustomizer, { shirtMat: character.shirtMat, pantsMat: character.pantsMat });
+
+function goHome() {
+  const HOME = { x: 0, z: 20, yaw: Math.PI };
+  if (mode === 'foot') { foot.x = HOME.x; foot.z = HOME.z; foot.yaw = HOME.yaw; foot.y = 0; foot.vy = 0; foot.speed = 0; }
+  else {
+    const state = mode === 'car' ? carState : motoState;
+    state.x = HOME.x; state.z = HOME.z; state.yaw = HOME.yaw; state.y = 0; state.vy = 0; state.speed = 0;
+  }
+  showMessage('חזרת לבסיס');
+}
+
+let muted = false;
+document.getElementById('settings-mute').addEventListener('click', (e) => {
+  muted = !muted;
+  setMuted(muted);
+  e.target.textContent = muted ? '🔇 בטל השתקה' : '🔈 השתק צלילים';
+});
+document.getElementById('settings-skip-time').addEventListener('click', () => { dayTime = (dayTime + 0.25) % 1; });
+
+document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); panelGarage.classList.remove('hidden'); });
+document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
+document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
+document.getElementById('menu-home').addEventListener('click', goHome);
+document.getElementById('menu-settings').addEventListener('click', () => { closeAllPanels(); panelSettings.classList.remove('hidden'); });
+document.getElementById('menu-wardrobe').addEventListener('click', () => { closeAllPanels(); panelCustomizer.classList.remove('hidden'); });
+
+// ============================================================
 // Resize
 // ============================================================
 function resize() {
@@ -438,6 +547,8 @@ function stepSim(dt) {
     updateHud(dt);
     updateWantedHud();
     updateMissionHud(missionInfo, playerState);
+    updateGpsHud(playerState);
+    refreshShopBadge();
     drawMinimap();
   }
   spaceEdge = false;
@@ -473,6 +584,7 @@ function startGame() {
   screenStart.classList.add('hidden');
   screenPause.classList.add('hidden');
   btnPause.classList.remove('hidden');
+  sideMenu.classList.remove('hidden');
   resize();
   requestAnimationFrame(loop);
 }

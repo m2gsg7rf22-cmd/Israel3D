@@ -1,12 +1,14 @@
-// Minimal localStorage-backed persistence: cash and a couple of lifetime
-// stats survive a page reload. No vehicle/mod/outfit data yet -- there is no
-// garage, mod shop, or customizer in this build to have state worth saving.
+// localStorage-backed persistence: cash, lifetime stats, purchased vehicle
+// upgrades, and the chosen character outfit colors survive a page reload.
 const KEY = 'openCity.save.v1';
 
 const DEFAULTS = {
   cash: 0,
   deliveriesCompleted: 0,
   bestStuntHeight: 0,
+  carUpgrades: { accel: 0, maxV: 0, steerSpeed: 0 },
+  motoUpgrades: { accel: 0, maxV: 0, steerSpeed: 0 },
+  outfit: { shirt: '#2f5fa8', pants: '#33384a' },
 };
 
 let state = { ...DEFAULTS };

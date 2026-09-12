@@ -119,3 +119,10 @@ export function setHydrantSpray(active) {
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 export function isReady() { return !!ctx; }
+
+// ---- global mute toggle for the settings panel ----
+const BASE_VOLUME = 0.55;
+export function setMuted(muted) {
+  if (!master) return;
+  master.gain.setTargetAtTime(muted ? 0 : BASE_VOLUME, now(), 0.05);
+}
