@@ -5,7 +5,7 @@ import { UnrealBloomPass } from '../vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
 import { initAudio, playPunch, setMuted } from './audio.js';
-import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted } from './police.js';
+import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
 import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash } from './missions.js';
 import { initCityArchitecture } from './cityArchitecture.js';
@@ -187,7 +187,7 @@ const cityOpts = {
   ],
 };
 const cityArch = initCityArchitecture(scene, THREE, cityOpts);
-const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles, pois } = cityArch;
+const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles, pois, updateLightCulling } = cityArch;
 // the safehouse structures aren't part of cityArchitecture's own generation,
 // so they were never in this list -- without this, vehicles and the player
 // on foot could walk/drive straight through the safehouse buildings
@@ -199,14 +199,26 @@ initPrison(scene, THREE);
 
 // 5m arrest-range ring, drawn flat on the ground around the player and only
 // shown while a police car is within it (see stepSim's policeInfo handling)
-const arrestRingMat = new THREE.MeshBasicMaterial({ color: '#ff3030', transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-const arrestRing = new THREE.Mesh(new THREE.RingGeometry(4.85, 5, 48), arrestRingMat);
+// arrest ring: a dim static boundary ring at the fixed 5m radius, plus a
+// bright radial "fill" arc drawn over it that sweeps a full circle across
+// exactly ARREST_SECONDS (4s) -- one geometry rebuild per frame while
+// visible, which is trivial for a ~48-segment ring
+const ARREST_RING_INNER = 4.85, ARREST_RING_OUTER = 5;
+const arrestRingMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+const arrestRing = new THREE.Mesh(new THREE.RingGeometry(ARREST_RING_INNER, ARREST_RING_OUTER, 48), arrestRingMat);
 arrestRing.rotation.x = -Math.PI / 2;
 arrestRing.position.y = 0.05;
 arrestRing.visible = false;
 scene.add(arrestRing);
+const arrestFillMat = new THREE.MeshBasicMaterial({ color: '#ff3030', transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+const arrestFillRing = new THREE.Mesh(new THREE.RingGeometry(ARREST_RING_INNER, ARREST_RING_OUTER, 48, 1, -Math.PI / 2, 0.0001), arrestFillMat);
+arrestFillRing.rotation.x = -Math.PI / 2;
+arrestFillRing.position.y = 0.06;
+arrestFillRing.visible = false;
+scene.add(arrestFillRing);
 
 let inPrison = false;
+let lastArrestProgress = 0;
 let activeMission = null;
 let missionTargetMesh = null;
 
@@ -285,6 +297,7 @@ let msgTimer = 0;
 let lastTime = null;
 let lastSplash = null;
 let slowMoTimer = 0;
+let lightCullTimer = 0;
 let lastMissionInfo = { score: 0, waypoint: null, splash: null };
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
@@ -672,6 +685,20 @@ try {
   if (savedScale) applyTouchScale(savedScale);
 } catch (e) { /* private mode -- default scale stays 1 */ }
 
+const POLICE_DIFF_KEY = 'openCity.policeDifficulty';
+function applyPoliceDifficulty(level) {
+  setPoliceDifficulty(level);
+  document.querySelectorAll('.diff-btn').forEach((b) => b.classList.toggle('active', b.dataset.diff === level));
+  try { localStorage.setItem(POLICE_DIFF_KEY, level); } catch (e) { /* private mode -- just won't persist */ }
+}
+document.querySelectorAll('.diff-btn').forEach((b) => {
+  b.addEventListener('click', () => applyPoliceDifficulty(b.dataset.diff));
+});
+try {
+  const savedDiff = localStorage.getItem(POLICE_DIFF_KEY);
+  applyPoliceDifficulty(savedDiff || getPoliceDifficulty());
+} catch (e) { /* private mode -- default difficulty stays normal */ }
+
 document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
@@ -777,6 +804,13 @@ function stepSim(dt) {
     updatePrison(dt);
 
     const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+
+    lightCullTimer -= dt;
+    if (lightCullTimer <= 0) {
+      lightCullTimer = 0.4;
+      updateLightCulling(playerState.x, playerState.z);
+    }
+
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
     if (policeInfo.rammed) {
       const activeState = mode === 'car' ? carState : motoState;
@@ -785,18 +819,29 @@ function stepSim(dt) {
       activeState.z += policeInfo.pushZ * 0.3;
     }
     if (policeInfo.runOverFoot) {
-      foot.x += policeInfo.footPushX * 1.5;
-      foot.z += policeInfo.footPushZ * 1.5;
-      foot.speed = 0;
-      showMessage('נדרסת על ידי ניידת משטרה!');
+      // non-lethal: the cruiser blocks/bumps the player aside instead of
+      // running them down -- police box the player in toward an arrest
+      foot.x += policeInfo.footPushX * 0.6;
+      foot.z += policeInfo.footPushZ * 0.6;
+      foot.speed *= 0.3;
+      showMessage('ניידת משטרה חוסמת אותך!');
     }
-    arrestRing.visible = policeInfo.inArrestRange && !inPrison;
-    if (arrestRing.visible) {
+    const arrestVisible = policeInfo.inArrestRange && !inPrison;
+    lastArrestProgress = policeInfo.arrestProgress;
+    arrestRing.visible = arrestVisible;
+    arrestFillRing.visible = arrestVisible;
+    if (arrestVisible) {
       arrestRing.position.x = playerState.x;
       arrestRing.position.z = playerState.z;
-      arrestRingMat.opacity = 0.4 + policeInfo.arrestProgress * 0.5;
+      arrestFillRing.position.x = playerState.x;
+      arrestFillRing.position.z = playerState.z;
+      // radial fill: one full sweep across the whole ring exactly as the
+      // 4-second arrest timer completes, "filling in" clockwise from the top
+      const thetaLength = Math.max(0.0001, policeInfo.arrestProgress * Math.PI * 2);
+      arrestFillRing.geometry.dispose();
+      arrestFillRing.geometry = new THREE.RingGeometry(ARREST_RING_INNER, ARREST_RING_OUTER, 48, 1, -Math.PI / 2, thetaLength);
     }
-    arrestWarning.classList.toggle('hidden', !arrestRing.visible);
+    arrestWarning.classList.toggle('hidden', !arrestVisible);
     if (policeInfo.arrested) startPrisonMission();
 
     if (inPrison && activeMission) {
@@ -1036,9 +1081,11 @@ function renderWorldSelect() {
 
 function enterWorld(id) {
   if (id === getActiveWorldId()) {
-    // this world's data is already what's loaded in memory -- no reload needed
+    // this world's data is already what's loaded in memory -- no reload
+    // needed, and per spec there's no separate "start roaming" step: picking
+    // a world drops the player straight into the game
     screenWorlds.classList.add('hidden');
-    screenStart.classList.remove('hidden');
+    startGame();
   } else {
     // every module reads its save data from saveSystem.js at import time, so
     // switching to a different world's data requires a fresh page load
@@ -1054,12 +1101,20 @@ worldNewBtn.addEventListener('click', () => {
 
 renderWorldSelect();
 btnResume.addEventListener('click', togglePause);
-btnRestartPause.addEventListener('click', () => { screenPause.classList.add('hidden'); togglePause(); });
+// returns to the world-select screen -- simplest correct way given every
+// module's save data is loaded once at import time (see saveSystem.js)
+btnRestartPause.addEventListener('click', () => location.reload());
 btnPause.addEventListener('click', togglePause);
 
 resize();
 composer.render();
 window.__gameBooted = true;
+window.__renderer = renderer;
+window.__lightCount = () => {
+  let n = 0;
+  scene.traverse((o) => { if (o.isLight) n++; });
+  return n;
+};
 
 window.__frameCount = 0;
 window.__debug = () => ({
@@ -1104,7 +1159,7 @@ window.__debug = () => ({
   },
   cash: getScore(),
   prison: {
-    inPrison, arrestRingVisible: arrestRing.visible,
+    inPrison, arrestRingVisible: arrestRing.visible, arrestProgress: lastArrestProgress,
     activeMission: activeMission ? { id: activeMission.id, title: activeMission.title } : null,
   },
 });
@@ -1158,6 +1213,13 @@ window.__testSetWanted = (level) => {
   const p = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
   __testSetWanted(level, p.x, p.z);
   return window.__debug();
+};
+window.__testMovePoliceCarNear = (dist = 2) => {
+  const p = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+  const c = getPoliceUnits().cars[0];
+  if (!c) return null;
+  c.x = p.x; c.z = p.z + dist; c.roadblock = true; // roadblock=true freezes its own movement AI so it stays put
+  return { x: c.x, z: c.z };
 };
 window.__testStuntJump = (x, z, yaw, speed, frames = 240) => {
   mode = 'car';

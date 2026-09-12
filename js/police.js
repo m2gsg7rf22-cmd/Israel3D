@@ -10,6 +10,10 @@ let hitCooldown = 0;
 let roadblockTimer = 0;
 let arrestTimer = 0;
 
+// 5m / 4s are fixed by spec regardless of difficulty -- difficulty instead
+// scales how hard the police are to shake off in the first place (pursuit
+// speed, how far/long you need to stay clear to lose a star, how often
+// roadblocks drop), not the arrest circle itself
 const ARREST_RADIUS = 5;
 const ARREST_SECONDS = 4;
 
@@ -17,8 +21,19 @@ const CAR_KIND = {
   cruiser: { maxSpeed: 24, accel: 18, color: '#0c0c10' },
   interceptor: { maxSpeed: 30, accel: 24, color: '#141418' },
 };
-const EVADE_SECONDS = 15;
-const EVADE_DIST = 34;
+
+const DIFFICULTY_PRESETS = {
+  easy: { speedMul: 0.78, evadeSeconds: 8, evadeDist: 26, roadblockCooldown: 14 },
+  normal: { speedMul: 0.9, evadeSeconds: 15, evadeDist: 34, roadblockCooldown: 9 },
+  hard: { speedMul: 1.02, evadeSeconds: 22, evadeDist: 42, roadblockCooldown: 6 },
+  pro: { speedMul: 1.18, evadeSeconds: 32, evadeDist: 52, roadblockCooldown: 4 },
+};
+let difficulty = 'normal';
+export function setPoliceDifficulty(level) {
+  if (DIFFICULTY_PRESETS[level]) difficulty = level;
+}
+export function getPoliceDifficulty() { return difficulty; }
+function preset() { return DIFFICULTY_PRESETS[difficulty]; }
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function damp(a, b, lambda, dt) { return a + (b - a) * (1 - Math.exp(-lambda * dt)); }
@@ -201,7 +216,7 @@ export function updatePolice(dt, playerState, isVehicle) {
       const steer = clamp(diff * 2.2, -1, 1);
       const speedFrac = Math.min(Math.abs(c.speed) / 7, 1);
       c.yaw += steer * (0.5 + Math.min(Math.abs(c.speed) / 30, 1) * 0.6) * speedFrac * Math.sign(c.speed || 1) * dt;
-      const wantSpeed = dist > 4 ? spec.maxSpeed * (0.7 + Math.min(wanted / 5, 1) * 0.3) : spec.maxSpeed * 0.25;
+      const wantSpeed = (dist > 4 ? spec.maxSpeed * (0.7 + Math.min(wanted / 5, 1) * 0.3) : spec.maxSpeed * 0.25) * preset().speedMul;
       c.speed = damp(c.speed, wantSpeed, 2.2, dt);
       c.x += Math.sin(c.yaw) * c.speed * dt;
       c.z += Math.cos(c.yaw) * c.speed * dt;
@@ -224,9 +239,10 @@ export function updatePolice(dt, playerState, isVehicle) {
       pushX += dx / (dist || 1);
       pushZ += dz / (dist || 1);
     }
-    // a fast-moving cruiser can run the player down on foot, same as the
-    // player's own car can run down a pedestrian
-    if (!isVehicle && dist < 1.6 && Math.abs(c.speed) * 3.6 > 10) {
+    // non-lethal: a cruiser cutting close to a player on foot blocks/bumps
+    // them out of the way rather than running them down -- police don't
+    // injure the player, they box them in toward an arrest
+    if (!isVehicle && dist < 1.6) {
       runOverFoot = true;
       footPushX += dx / (dist || 1);
       footPushZ += dz / (dist || 1);
@@ -258,7 +274,7 @@ export function updatePolice(dt, playerState, isVehicle) {
   if (wanted >= 5 && isVehicle) {
     roadblockTimer -= dt;
     if (roadblockTimer <= 0) {
-      roadblockTimer = 9;
+      roadblockTimer = preset().roadblockCooldown;
       const ahead = 22;
       const rx = playerState.x + Math.sin(playerState.yaw) * ahead;
       const rz = playerState.z + Math.cos(playerState.yaw) * ahead;
@@ -267,10 +283,10 @@ export function updatePolice(dt, playerState, isVehicle) {
     }
   }
 
-  // evasion: if every unit stays far away for EVADE_SECONDS, clear one star and flash
-  if (nearestDist > EVADE_DIST) {
+  // evasion: if every unit stays far away for evadeSeconds, clear one star and flash
+  if (nearestDist > preset().evadeDist) {
     evadeTimer += dt;
-    if (evadeTimer >= EVADE_SECONDS) {
+    if (evadeTimer >= preset().evadeSeconds) {
       wanted = clamp(wanted - 1, 0, 5);
       flashTimer = 1.2;
       evadeTimer = 0;

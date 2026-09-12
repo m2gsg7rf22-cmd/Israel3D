@@ -183,6 +183,14 @@ export function initCityArchitecture(scene, THREE, opts) {
   const nightLights = [];
   const pois = [];
   const awningMatShared = new THREE.MeshStandardMaterial({ color: '#c94f4f', roughness: 0.7 });
+  // Every shop/lamp PointLight used to be added to the scene permanently.
+  // Three.js compiles its lighting shader against however many lights are
+  // currently IN the scene graph, regardless of their intensity -- so a
+  // few hundred always-there point lights cost the same per-pixel lighting
+  // work at noon as at midnight. cullableLights holds them un-parented by
+  // default; updateLightCulling() below adds only the ones actually near
+  // the player/camera and removes the rest, capping the real light count.
+  const cullableLights = [];
 
   const hvacMatShared = new THREE.MeshStandardMaterial({ color: '#888', roughness: 0.7 });
   const antennaMatShared = new THREE.MeshStandardMaterial({ color: '#333' });
@@ -303,9 +311,9 @@ export function initCityArchitecture(scene, THREE, opts) {
 
       const lamp = new THREE.PointLight('#ffce94', 0, 8);
       lamp.position.set(0, 2.2, d / 2 + 1.2);
-      group.add(lamp);
       lamp.__base = 10;
       nightLights.push(lamp);
+      cullableLights.push({ light: lamp, parent: group, x: cx, z: cz, inScene: false });
     }
 
     scene.add(group);
@@ -369,9 +377,9 @@ export function initCityArchitecture(scene, THREE, opts) {
       scene.add(poleGroup);
       const light = new THREE.PointLight('#fff0d6', 0, 22, 2);
       light.position.set(x, 7.6, z);
-      scene.add(light);
       light.__base = 1.4;
       nightLights.push(light);
+      cullableLights.push({ light, parent: scene, x, z, inScene: false });
       shopSigns.push(bulbMat);
       lampPoles.push({ x, z, group: poleGroup, light, broken: false, alive: true, tilt: 0, fadeTimer: 0 });
     }
@@ -404,8 +412,25 @@ export function initCityArchitecture(scene, THREE, opts) {
     }
   }
 
+  // keeps only the MAX_ACTIVE_LIGHTS nearest cullable lights parented in the
+  // scene graph; called every ~0.4s (not every frame -- a full distance
+  // sort over a few hundred lights is cheap but pointless to redo per-frame)
+  const MAX_ACTIVE_LIGHTS = 24;
+  function updateLightCulling(px, pz) {
+    for (const c of cullableLights) {
+      c.distSq = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz);
+    }
+    cullableLights.sort((a, b) => a.distSq - b.distSq);
+    for (let i = 0; i < cullableLights.length; i++) {
+      const c = cullableLights[i];
+      const shouldBeIn = i < MAX_ACTIVE_LIGHTS;
+      if (shouldBeIn && !c.inScene) { c.parent.add(c.light); c.inScene = true; }
+      else if (!shouldBeIn && c.inScene) { c.parent.remove(c.light); c.inScene = false; }
+    }
+  }
+
   return {
     ground, buildingAABBs, lampPoles, nightLights, shopSigns, pois,
-    buildingMaterials, hitLampPoles, updateLampPoles,
+    buildingMaterials, hitLampPoles, updateLampPoles, updateLightCulling,
   };
 }
