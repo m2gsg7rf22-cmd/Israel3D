@@ -1,0 +1,23 @@
+{
+  "name": "israel3d",
+  "version": "1.0.0",
+  "description": "",
+  "main": "game.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m2gsg7rf22-cmd/Israel3D.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/m2gsg7rf22-cmd/Israel3D/issues"
+  },
+  "homepage": "https://github.com/m2gsg7rf22-cmd/Israel3D#readme",
+  "dependencies": {
+    "three": "^0.160.0"
+  }
+}
