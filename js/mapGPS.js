@@ -8,7 +8,7 @@
 let canvas_, ctx_, tooltip_, world_, getters_, onWaypoint_;
 let graph_ = null;
 
-function buildRoadGraph(cityHalf, block) {
+export function buildRoadGraph(cityHalf, block) {
   const coords = [];
   for (let v = -cityHalf; v <= cityHalf + 0.01; v += block) coords.push(Math.round(v));
   const nodes = [];

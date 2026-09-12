@@ -21,6 +21,7 @@ import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle,
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
 import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionById, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
 import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute } from './racing.js';
+import { initTraffic, spawnTraffic, updateTraffic } from './traffic.js';
 import { getSave, saveState, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
 // ============================================================
@@ -422,6 +423,9 @@ initRacing(scene, THREE, {
   resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY, addCash,
   setDayTime: (t) => { dayTime = t; }, getDayTime: () => dayTime,
 });
+
+initTraffic(scene, THREE, { BLOCK, CITY_HALF, buildCar, updateVehicle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY });
+spawnTraffic(26, 0, 0);
 
 function updateFoot(dt) {
   const { steer, throttle } = steerThrottle();
@@ -906,6 +910,7 @@ function stepSim(dt) {
     updatePrison(dt);
 
     const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
+    updateTraffic(dt, mode === 'foot' ? null : playerState);
 
     lightCullTimer -= dt;
     if (lightCullTimer <= 0) {
