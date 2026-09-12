@@ -568,6 +568,24 @@ body {
 
 .swatch:active { border-color: #fff; }
 
+.preset-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preset-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.preset-btn:active { border-color: #fff; }
+
 .panel-card-map {
   width: min(92%, 480px);
   align-items: center;
