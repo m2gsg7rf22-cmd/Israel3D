@@ -144,9 +144,13 @@ function ensureUnits(playerX, playerZ, playerYaw) {
   }
 }
 
-export function initPolice(scene, THREE) {
+let resolveCircleVsBuildings_ = null;
+const POLICE_CAR_RADIUS = 2.3;
+
+export function initPolice(scene, THREE, resolveCircleVsBuildings) {
   THREE_ = THREE;
   scene_ = scene;
+  resolveCircleVsBuildings_ = resolveCircleVsBuildings;
 }
 
 export function getWantedLevel() { return wanted; }
@@ -169,12 +173,14 @@ export function updatePolice(dt, playerState, isVehicle) {
   if (wanted <= 0) {
     if (cars.length || officers.length) despawnAll();
     setSirenActive(false);
-    return { wanted: 0, flashing: false, nearestDist: Infinity, rammed: false };
+    return { wanted: 0, flashing: false, nearestDist: Infinity, rammed: false, runOverFoot: false };
   }
 
   let nearestDist = Infinity;
   let rammed = false;
   let pushX = 0, pushZ = 0;
+  let runOverFoot = false;
+  let footPushX = 0, footPushZ = 0;
 
   for (const c of cars) {
     const dx = playerState.x - c.x, dz = playerState.z - c.z;
@@ -192,6 +198,9 @@ export function updatePolice(dt, playerState, isVehicle) {
       c.speed = damp(c.speed, wantSpeed, 2.2, dt);
       c.x += Math.sin(c.yaw) * c.speed * dt;
       c.z += Math.cos(c.yaw) * c.speed * dt;
+      // pursuing cars used to drive straight through buildings -- the exact
+      // same collision list the player's own vehicle already respects
+      if (resolveCircleVsBuildings_) resolveCircleVsBuildings_(c, POLICE_CAR_RADIUS);
     }
 
     for (const w of c.wheels) w.rotation.x += c.speed * dt / 0.35;
@@ -207,6 +216,13 @@ export function updatePolice(dt, playerState, isVehicle) {
       rammed = true;
       pushX += dx / (dist || 1);
       pushZ += dz / (dist || 1);
+    }
+    // a fast-moving cruiser can run the player down on foot, same as the
+    // player's own car can run down a pedestrian
+    if (!isVehicle && dist < 1.6 && Math.abs(c.speed) * 3.6 > 10) {
+      runOverFoot = true;
+      footPushX += dx / (dist || 1);
+      footPushZ += dz / (dist || 1);
     }
   }
 
@@ -259,7 +275,7 @@ export function updatePolice(dt, playerState, isVehicle) {
 
   setSirenActive(true, clamp(1 - nearestDist / 60, 0.15, 1));
 
-  return { wanted, flashing: flashTimer > 0, nearestDist, rammed, pushX, pushZ };
+  return { wanted, flashing: flashTimer > 0, nearestDist, rammed, pushX, pushZ, runOverFoot, footPushX, footPushZ };
 }
 
 export function getPoliceUnits() { return { cars, officers }; }

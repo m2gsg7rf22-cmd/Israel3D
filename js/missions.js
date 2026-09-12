@@ -72,7 +72,7 @@ function showSplash(text, duration = 2.2) {
   splashTimer = duration;
 }
 
-function addCash(amount) {
+export function addCash(amount) {
   score += amount;
   saveState({ cash: score });
 }

@@ -1,7 +1,7 @@
 import { vehicleHitPedestrians } from './pedestrians.js';
 import { increaseWanted } from './police.js';
 import { vehicleHitProps, scrapeSparks, spawnSmoke } from './props.js';
-import { checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd } from './missions.js';
+import { checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd, addCash } from './missions.js';
 import { playImpact } from './audio.js';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { DRACOLoader } from '../vendor/loaders/DRACOLoader.js';
@@ -196,10 +196,12 @@ export function updateVehicle(state, dt, params, ctx) {
   state.z += Math.cos(state.yaw) * state.speed * dt;
   state.steer = steer;
 
-  if (vehicleHitPedestrians(state.x, state.z, state.speed)) {
+  const pedsHit = vehicleHitPedestrians(state.x, state.z, state.speed);
+  if (pedsHit) {
     state.speed *= 0.92;
     increaseWanted(state.x, state.z, 1);
     playImpact(0.8);
+    addCash(300 * pedsHit); // per spec: a cash payout for every pedestrian run over
   }
 
   const propHit = vehicleHitProps(state.x, state.z, state.speed);

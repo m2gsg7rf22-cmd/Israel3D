@@ -653,7 +653,7 @@ body {
   right: 12px;
   bottom: 12px;
   width: 108px;
-  height: 100px;
+  height: 140px;
   pointer-events: none;
   transform: scale(var(--touch-scale, 1));
   transform-origin: bottom right;
@@ -710,4 +710,13 @@ body {
   font-size: 11px;
   right: 46px;
   bottom: 58px;
+}
+
+.br-btn-knife {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  right: 4px;
+  bottom: 94px;
+  background: rgba(180, 180, 190, 0.3);
 }

@@ -170,7 +170,7 @@ const character = buildCharacter(THREE, scene);
 // Pedestrians
 // ============================================================
 spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 48 });
-initPolice(scene, THREE);
+initPolice(scene, THREE, resolveCircleVsBuildings);
 initProps(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED });
 initMissions(scene, THREE);
 
@@ -194,7 +194,7 @@ let slowMoTimer = 0;
 let lastMissionInfo = { score: 0, waypoint: null, splash: null };
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
-let fEdge = false, spaceEdge = false, punchEdge = false;
+let fEdge = false, spaceEdge = false, punchEdge = false, pendingWeapon = null;
 const joy = { x: 0, y: 0, active: false, pointerId: null };
 
 function steerThrottle() {
@@ -260,9 +260,9 @@ function showMessage(text) {
   msgTimer = 1.6;
 }
 
-function tryPunch() {
+function tryPunch(forceWeapon) {
   if (mode !== 'foot') return;
-  const isKnife = weapon === 'knife';
+  const isKnife = (forceWeapon || weapon) === 'knife';
   const hit = punchNear(foot.x, foot.z, foot.yaw, isKnife ? 2.1 : 1.5);
   if (hit) {
     playPunch();
@@ -595,7 +595,7 @@ function stepSim(dt) {
     if (!handled) trySafehousePurchase(foot.x, foot.z);
     fEdge = false;
   }
-  if (punchEdge) { tryPunch(); punchEdge = false; }
+  if (punchEdge) { tryPunch(pendingWeapon); punchEdge = false; pendingWeapon = null; }
 
   if (!paused) {
     if (mode === 'car') { if (updateVehicle(carState, dt, CAR_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
@@ -614,6 +614,12 @@ function stepSim(dt) {
       activeState.speed *= 0.85;
       activeState.x += policeInfo.pushX * 0.3;
       activeState.z += policeInfo.pushZ * 0.3;
+    }
+    if (policeInfo.runOverFoot) {
+      foot.x += policeInfo.footPushX * 1.5;
+      foot.z += policeInfo.footPushZ * 1.5;
+      foot.speed = 0;
+      showMessage('נדרסת על ידי ניידת משטרה!');
     }
 
     const missionInfo = updateMissions(dt, playerState.x, playerState.z, mode !== 'foot');
@@ -700,6 +706,10 @@ window.addEventListener('keydown', (e) => {
   setKey(e.key, true);
 });
 window.addEventListener('keyup', (e) => setKey(e.key, false));
+// right-click punches on desktop, per spec -- also block the browser's own
+// context menu on the canvas so a right-click doesn't pop that up instead
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('mousedown', (e) => { if (e.button === 2) punchEdge = true; });
 window.addEventListener('blur', () => {
   keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = keys.punch = false;
   resetJoy();
@@ -760,8 +770,12 @@ document.getElementById('t-action').addEventListener('touchstart', (e) => { e.pr
 document.getElementById('t-action').addEventListener('click', () => { fEdge = true; });
 document.getElementById('t-jump').addEventListener('touchstart', (e) => { e.preventDefault(); if (!keys.space) spaceEdge = true; }, { passive: false });
 document.getElementById('t-jump').addEventListener('click', () => { spaceEdge = true; });
-document.getElementById('t-punch').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; }, { passive: false });
-document.getElementById('t-punch').addEventListener('click', () => { punchEdge = true; });
+// these two are always fist/knife respectively regardless of the settings
+// toggle, per spec ("two fixed buttons -- a punch button and a knife button")
+document.getElementById('t-punch').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; pendingWeapon = 'fist'; }, { passive: false });
+document.getElementById('t-punch').addEventListener('click', () => { punchEdge = true; pendingWeapon = 'fist'; });
+document.getElementById('t-knife').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; pendingWeapon = 'knife'; }, { passive: false });
+document.getElementById('t-knife').addEventListener('click', () => { punchEdge = true; pendingWeapon = 'knife'; });
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
   touchControls.classList.remove('hidden');
@@ -787,6 +801,7 @@ window.__debug = () => ({
   peds: getPedestrians().map(p => ({ x: p.x, z: p.z, state: p.state })),
   wanted: getWantedLevel(),
   policeCars: getPoliceUnits().cars.length,
+  policeCarPositions: getPoliceUnits().cars.map((c) => ({ x: c.x, z: c.z })),
   policeOfficers: getPoliceUnits().officers.length,
   props: (() => {
     const p = getProps();

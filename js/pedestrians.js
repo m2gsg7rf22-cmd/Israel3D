@@ -311,23 +311,26 @@ export function punchNear(x, z, yaw, range = 1.5, halfAngleCos = 0.45) {
   return hitAny;
 }
 
+// returns the number of pedestrians hit this call (0 is falsy, so existing
+// `if (vehicleHitPedestrians(...))` callers still work unchanged) -- needed
+// so a cash-per-pedestrian payout is exact even if two are hit in one frame
 export function vehicleHitPedestrians(vx, vz, vspeed, radius = 1.15, speedThresholdKmh = 5) {
   const speedKmh = Math.abs(vspeed) * 3.6;
-  if (speedKmh < speedThresholdKmh) return false;
-  let hitAny = false;
+  if (speedKmh < speedThresholdKmh) return 0;
+  let hitCount = 0;
   for (const p of peds) {
     if (p.state === 'down' || p.state === 'gettingUp') continue;
     const dx = p.x - vx, dz = p.z - vz;
     const dist = Math.hypot(dx, dz);
     if (dist > radius) continue;
-    hitAny = true;
+    hitCount++;
     p.state = 'down';
     p.downTimer = 2.5 + Math.random() * 1.5;
     const dirLen = dist || 0.01;
     p.knockDir = { x: dx / dirLen, z: dz / dirLen };
     p.speed = Math.min(6, Math.abs(vspeed) * 0.6);
   }
-  return hitAny;
+  return hitCount;
 }
 
 export function getPedestrians() { return peds; }
