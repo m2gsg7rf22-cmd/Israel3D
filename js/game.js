@@ -19,9 +19,9 @@ import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
-import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
+import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionById, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
 import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute } from './racing.js';
-import { getSave, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
+import { getSave, saveState, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
 // ============================================================
 // Constants
@@ -282,6 +282,62 @@ function releaseFromJail() {
   foot.x = entry.x + 14; foot.z = entry.z; foot.yaw = Math.PI / 2; foot.y = 0; foot.vy = 0; foot.speed = 0;
   showMessage('🔓 שוחררת מהכלא לאחר ריצוי הזמן');
 }
+
+// restores a jail-in-progress state exactly (mission + remaining timer)
+// instead of picking a fresh random mission, so reloading mid-sentence
+// doesn't hand the player a free do-over
+function restorePrisonMission(missionId, jailRemaining) {
+  const mission = getMissionById(missionId);
+  if (!mission) return false;
+  inPrison = true;
+  activeMission = mission;
+  jailTimer = jailRemaining > 0 ? jailRemaining : JAIL_RELEASE_SECONDS;
+  const entry = getPrisonEntryPoint();
+  mode = 'foot';
+  character.group.visible = true;
+  foot.x = entry.x; foot.z = entry.z; foot.yaw = entry.yaw; foot.y = 0; foot.vy = 0; foot.speed = 0;
+  const target = getMissionTargetWorld(activeMission);
+  showMissionTargetBeacon(target.x, target.z);
+  prisonHud.classList.remove('hidden');
+  prisonText.textContent = activeMission.title + ' — ' + activeMission.text;
+  prisonStatus.textContent = '';
+  return true;
+}
+
+// auto-save: exact coordinates, mode, wanted level, and (if applicable) the
+// in-progress jail sentence + escape mission -- called on exit to the world
+// selector, on tab close, and periodically during play
+function saveGameState() {
+  saveState({
+    cash: getScore(),
+    lastLocation: { mode, x: playerXForSave(), z: playerZForSave(), yaw: playerYawForSave() },
+    inPrison,
+    activeMissionId: activeMission ? activeMission.id : null,
+    jailTimerRemaining: inPrison ? jailTimer : 0,
+    wantedLevel: getWantedLevel(),
+  });
+}
+function playerXForSave() { return mode === 'car' ? carState.x : mode === 'moto' ? motoState.x : foot.x; }
+function playerZForSave() { return mode === 'car' ? carState.z : mode === 'moto' ? motoState.z : foot.z; }
+function playerYawForSave() { return mode === 'car' ? carState.yaw : mode === 'moto' ? motoState.yaw : foot.yaw; }
+
+// applied once, right when the game actually starts (see startGame()) --
+// everything it needs (character, carState, ...) is already built by then
+// even though this function is declared up here, since it only ever runs
+// later in response to a user action
+function restoreSavedState() {
+  const save = getSave();
+  if (save.inPrison && save.activeMissionId) {
+    if (restorePrisonMission(save.activeMissionId, save.jailTimerRemaining)) return;
+  }
+  if (save.lastLocation) {
+    const loc = save.lastLocation;
+    if (loc.mode === 'car') { carState.x = loc.x; carState.z = loc.z; carState.yaw = loc.yaw; mode = 'car'; character.group.visible = false; }
+    else if (loc.mode === 'moto') { motoState.x = loc.x; motoState.z = loc.z; motoState.yaw = loc.yaw; mode = 'moto'; seatOnMoto(scene, character, moto.group); }
+    else { foot.x = loc.x; foot.z = loc.z; foot.yaw = loc.yaw; mode = 'foot'; character.group.visible = true; }
+  }
+  if (save.wantedLevel > 0) __testSetWanted(save.wantedLevel, playerXForSave(), playerZForSave());
+}
 initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
 const car = buildCar(THREE, scene);
@@ -314,6 +370,7 @@ let lastTime = null;
 let lastSplash = null;
 let slowMoTimer = 0;
 let lightCullTimer = 0;
+let autosaveTimer = 0;
 let lastMissionInfo = { score: 0, waypoint: null, splash: null };
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
@@ -850,6 +907,9 @@ function stepSim(dt) {
       updateLightCulling(playerState.x, playerState.z);
     }
 
+    autosaveTimer -= dt;
+    if (autosaveTimer <= 0) { autosaveTimer = 20; saveGameState(); }
+
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
     if (policeInfo.rammed) {
       const activeState = mode === 'car' ? carState : motoState;
@@ -960,6 +1020,7 @@ function loop(ts) {
 // ============================================================
 function startGame() {
   initAudio();
+  restoreSavedState();
   running = true;
   paused = false;
   lastTime = null;
@@ -1153,7 +1214,8 @@ renderWorldSelect();
 btnResume.addEventListener('click', togglePause);
 // returns to the world-select screen -- simplest correct way given every
 // module's save data is loaded once at import time (see saveSystem.js)
-btnRestartPause.addEventListener('click', () => location.reload());
+btnRestartPause.addEventListener('click', () => { saveGameState(); location.reload(); });
+window.addEventListener('beforeunload', saveGameState);
 btnPause.addEventListener('click', togglePause);
 
 resize();

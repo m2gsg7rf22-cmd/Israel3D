@@ -25,6 +25,10 @@ const DEFAULTS = {
   ownedTiers: [1],
   activeVehicle: 'car',
   lastLocation: null,
+  inPrison: false,
+  activeMissionId: null,
+  jailTimerRemaining: 0,
+  wantedLevel: 0,
 };
 
 function readWorldsIndex() {

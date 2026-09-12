@@ -222,6 +222,12 @@ export function pickRandomMission() {
   return MISSIONS[Math.floor(Math.random() * MISSIONS.length)];
 }
 
+// looks up a mission by id -- used to restore an in-progress escape mission
+// after a reload, since only the id (not the whole object) is saved
+export function getMissionById(id) {
+  return MISSIONS.find((m) => m.id === id) || null;
+}
+
 export function getMissionTargetWorld(mission) {
   return { x: PRISON_X + mission.targetLocal.x, z: PRISON_Z + mission.targetLocal.z };
 }
