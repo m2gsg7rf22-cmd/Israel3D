@@ -12,6 +12,7 @@ import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
 import { buildCharacter, applyLocomotionSwing, seatOnMoto, unseatFromMoto } from './characterRig.js';
+import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } from './cameraRig.js';
 
 // ============================================================
 // Constants
@@ -108,6 +109,8 @@ composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.4, 0.86);
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
+
+initCameraRig(camera, canvas);
 
 const hemiLight = new THREE.HemisphereLight('#c8dcf0', '#2c2f36', 0.9);
 scene.add(hemiLight);
@@ -270,41 +273,6 @@ function tryEnterExit() {
 }
 
 // ============================================================
-// Camera
-// ============================================================
-const camPos = new THREE.Vector3(0, 8, -14);
-const camTarget = new THREE.Vector3();
-let camFov = 62;
-
-function updateCamera(dt) {
-  let desiredPos, lookAt, fov;
-  if (mode === 'car' || mode === 'moto') {
-    const state = mode === 'car' ? carState : motoState;
-    const dist = mode === 'car' ? 7.2 + Math.abs(state.speed) * 0.05 : 6.4 + Math.abs(state.speed) * 0.06;
-    const height = mode === 'car' ? 2.8 + Math.abs(state.speed) * 0.02 : 2.6 + Math.abs(state.speed) * 0.02;
-    desiredPos = new THREE.Vector3(state.x - Math.sin(state.yaw) * dist, height, state.z - Math.cos(state.yaw) * dist);
-    lookAt = new THREE.Vector3(state.x + Math.sin(state.yaw) * 6, 1.2, state.z + Math.cos(state.yaw) * 6);
-    fov = (mode === 'car' ? 60 : 64) + Math.abs(state.speed) * 0.25;
-  } else {
-    const dist = keys.shift ? 4.8 : 4.4;
-    desiredPos = new THREE.Vector3(foot.x - Math.sin(foot.yaw) * dist, 2.9 + foot.y, foot.z - Math.cos(foot.yaw) * dist);
-    lookAt = new THREE.Vector3(foot.x, 1.3 + foot.y, foot.z);
-    fov = keys.shift ? 63 : 58;
-  }
-  camPos.x = damp(camPos.x, desiredPos.x, 7, dt);
-  camPos.y = damp(camPos.y, desiredPos.y, 7, dt);
-  camPos.z = damp(camPos.z, desiredPos.z, 7, dt);
-  camTarget.x = damp(camTarget.x, lookAt.x, 10, dt);
-  camTarget.y = damp(camTarget.y, lookAt.y, 10, dt);
-  camTarget.z = damp(camTarget.z, lookAt.z, 10, dt);
-  camFov = damp(camFov, fov, 4, dt);
-  camera.position.copy(camPos);
-  camera.lookAt(camTarget);
-  camera.fov = camFov;
-  camera.updateProjectionMatrix();
-}
-
-// ============================================================
 // Day / night
 // ============================================================
 function updateDayNight(dt) {
@@ -464,7 +432,7 @@ function stepSim(dt) {
       lastSplash = null;
     }
 
-    updateCamera(dt);
+    updateCameraRig(dt, { mode, carState, motoState, foot, sprinting: keys.shift });
     updateDayNight(dt);
     syncMeshes(dt);
     updateHud(dt);
@@ -636,6 +604,7 @@ window.__debug = () => ({
   markers: getMarkers(),
   ramps: getRamps(),
   nightFactor,
+  camera: getCameraZoomDebug(),
 });
 window.__setFootPos = (x, z, yaw = 0) => { foot.x = x; foot.z = z; foot.yaw = yaw; foot.speed = 0; return window.__debug(); };
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
@@ -731,6 +700,7 @@ window.__driveTo = (targetX, targetZ, within, maxIters = 400) => {
   return window.__debug();
 };
 window.__setDayTime = (t) => { dayTime = t; for (let f = 0; f < 3; f++) stepSim(1 / 60); composer.render(); return window.__debug(); };
+window.__setCameraZoomTarget = (z) => { __testSetZoom(z); return window.__debug(); };
 window.__brakeToStop = (which, maxIters = 200) => {
   const state = which === 'car' ? carState : motoState;
   mode = which; // ensure the vehicle is actually being simulated
