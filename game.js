@@ -1,4 +1,9 @@
-import * as THREE from './vendor/three.module.js';
+import * as THREE from 'three';
+import { EffectComposer } from './vendor/postprocessing/EffectComposer.js';
+import { RenderPass } from './vendor/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from './vendor/postprocessing/OutputPass.js';
+import { spawnPedestrians, updatePedestrians, punchNear, vehicleHitPedestrians, getPedestrians } from './pedestrians.js';
 
 // ============================================================
 // Constants
@@ -73,6 +78,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 const DAY_SKY = new THREE.Color('#5ec8f5');
@@ -82,6 +89,12 @@ scene.fog = new THREE.FogExp2(DAY_SKY.getHex(), 0.0016);
 
 const camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.1, 900);
 camera.position.set(0, 8, -14);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.4, 0.86);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
 
 const hemiLight = new THREE.HemisphereLight('#c8dcf0', '#2c2f36', 0.9);
 scene.add(hemiLight);
@@ -110,16 +123,28 @@ function buildCityTexture() {
   g.fillStyle = '#3a3d42';
   g.fillRect(0, 0, px, px);
 
+  // asphalt grain
+  const grainRng = mulberry32(CITY_SEED + 42);
+  g.fillStyle = 'rgba(255,255,255,0.04)';
+  for (let i = 0; i < 6000; i++) {
+    const gx = grainRng() * px, gz = grainRng() * px, gs = 1 + grainRng() * 2;
+    g.fillRect(gx, gz, gs, gs);
+  }
+
   const rng = mulberry32(CITY_SEED + 999);
   for (let bx = 0; bx < GRID; bx++) {
     for (let bz = 0; bz < GRID; bz++) {
       const cx = (bx - GRID / 2 + 0.5) * BLOCK;
       const cz = (bz - GRID / 2 + 0.5) * BLOCK;
       const district = districtOf(bx, bz);
-      g.fillStyle = district.lotColor;
       const sx = (cx + CITY_HALF - LOT / 2) * scale;
       const sz = (cz + CITY_HALF - LOT / 2) * scale;
-      g.fillRect(sx, sz, LOT * scale, LOT * scale);
+      const sw = LOT * scale;
+      // curb: a thin concrete-grey border just outside the lot, under the building line
+      g.fillStyle = '#9a9a92';
+      g.fillRect(sx - 2, sz - 2, sw + 4, sw + 4);
+      g.fillStyle = district.lotColor;
+      g.fillRect(sx, sz, sw, sw);
     }
   }
 
@@ -133,6 +158,30 @@ function buildCityTexture() {
   for (let bz = 0; bz <= GRID; bz++) {
     const z = (bz * BLOCK) * scale;
     g.beginPath(); g.moveTo(0, z); g.lineTo(px, z); g.stroke();
+  }
+  g.setLineDash([]);
+
+  // crosswalks: zebra stripes on the four approaches to a subset of intersections
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  const crossW = (STREET_W - 2) * scale;
+  const stripeLen = 0.6 * scale, stripeGap = 0.5 * scale, stripeThick = 0.35 * scale;
+  const setback = STREET_W / 2 * scale + 1 * scale;
+  for (let bx = 1; bx < GRID; bx += 2) {
+    for (let bz = 1; bz < GRID; bz += 2) {
+      const ix = bx * BLOCK * scale, iz = bz * BLOCK * scale;
+      // vertical-street approaches (crossing drawn horizontally) at north/south of intersection
+      for (const dz of [-setback, setback]) {
+        for (let s = -crossW / 2; s < crossW / 2; s += stripeLen + stripeGap) {
+          g.fillRect(ix + s, iz + dz - stripeThick / 2, stripeLen, stripeThick);
+        }
+      }
+      // horizontal-street approaches (crossing drawn vertically) at east/west of intersection
+      for (const dx of [-setback, setback]) {
+        for (let s = -crossW / 2; s < crossW / 2; s += stripeLen + stripeGap) {
+          g.fillRect(ix + dx - stripeThick / 2, iz + s, stripeThick, stripeLen);
+        }
+      }
+    }
   }
 
   const tex = new THREE.CanvasTexture(cnv);
@@ -309,6 +358,62 @@ for (let bx = 1; bx < GRID; bx += 2) {
 }
 
 // ============================================================
+// Procedural street trees
+// ============================================================
+{
+  const treeRng = mulberry32(CITY_SEED + 7777);
+  const candidates = [];
+  for (let bx = 0; bx < GRID; bx++) {
+    for (let bz = 0; bz < GRID; bz++) {
+      if (treeRng() < 0.55) candidates.push({ bx, bz });
+    }
+  }
+  const trunkGeo = new THREE.CylinderGeometry(0.13, 0.18, 2.2, 6);
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#5a4130', roughness: 0.95 });
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, candidates.length);
+  trunks.castShadow = true;
+  scene.add(trunks);
+
+  const foliageGeo = new THREE.SphereGeometry(1, 7, 6);
+  const foliageMat = new THREE.MeshStandardMaterial({ color: '#3f7a3a', roughness: 0.9 });
+  const foliageLayers = 3;
+  const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, candidates.length * foliageLayers);
+  foliage.castShadow = true;
+  scene.add(foliage);
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const posV = new THREE.Vector3();
+  const scaleV = new THREE.Vector3();
+  const r = LOT / 2 + 3.0;
+  let foliageIdx = 0;
+  candidates.forEach((b, i) => {
+    const c = { x: (b.bx - GRID / 2 + 0.5) * BLOCK, z: (b.bz - GRID / 2 + 0.5) * BLOCK };
+    const corner = Math.floor(treeRng() * 4);
+    const cx = c.x + (corner % 2 === 0 ? -r : r);
+    const cz = c.z + (corner < 2 ? -r : r);
+    const treeH = 3.6 + treeRng() * 1.8;
+    const trunkScale = treeH / 2.2;
+
+    posV.set(cx, treeH * 0.24, cz);
+    scaleV.set(1, trunkScale, 1);
+    m.compose(posV, q, scaleV);
+    trunks.setMatrixAt(i, m);
+
+    for (let l = 0; l < foliageLayers; l++) {
+      const fy = treeH * 0.5 + l * (treeH * 0.22);
+      const fr = (1.1 - l * 0.18) * (0.85 + treeRng() * 0.3);
+      posV.set(cx + (treeRng() - 0.5) * 0.3, fy, cz + (treeRng() - 0.5) * 0.3);
+      scaleV.set(fr, fr * 0.85, fr);
+      m.compose(posV, q, scaleV);
+      foliage.setMatrixAt(foliageIdx++, m);
+    }
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  foliage.instanceMatrix.needsUpdate = true;
+}
+
+// ============================================================
 // Vehicles
 // ============================================================
 function buildCar() {
@@ -425,6 +530,11 @@ function buildCharacter() {
 const character = buildCharacter();
 
 // ============================================================
+// Pedestrians
+// ============================================================
+spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 32 });
+
+// ============================================================
 // Simulation state
 // ============================================================
 const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0 };
@@ -438,8 +548,8 @@ let paused = false;
 let msgTimer = 0;
 let lastTime = null;
 
-const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false };
-let fEdge = false, spaceEdge = false;
+const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
+let fEdge = false, spaceEdge = false, punchEdge = false;
 const joy = { x: 0, y: 0, active: false, pointerId: null };
 
 function steerThrottle() {
@@ -493,6 +603,7 @@ function updateVehicle(state, dt, params) {
   state.z += Math.cos(state.yaw) * state.speed * dt;
   state.steer = steer;
 
+  if (vehicleHitPedestrians(state.x, state.z, state.speed)) state.speed *= 0.92;
   resolveCircleVsBuildings(state, params.radius);
 }
 
@@ -526,6 +637,12 @@ function showMessage(text) {
   hudMsg.textContent = text;
   hudMsg.classList.add('visible');
   msgTimer = 1.6;
+}
+
+function tryPunch() {
+  if (mode !== 'foot') return;
+  const hit = punchNear(foot.x, foot.z, foot.yaw);
+  if (hit) showMessage('אגרוף!');
 }
 
 function tryEnterExit() {
@@ -688,6 +805,7 @@ function updateHud(dt) {
 function resize() {
   const rect = wrap.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height, true);
+  composer.setSize(rect.width, rect.height);
   camera.aspect = rect.width / rect.height;
   camera.updateProjectionMatrix();
 }
@@ -698,11 +816,13 @@ window.addEventListener('resize', resize);
 // ============================================================
 function stepSim(dt) {
   if (fEdge) { tryEnterExit(); fEdge = false; }
+  if (punchEdge) { tryPunch(); punchEdge = false; }
 
   if (!paused) {
     if (mode === 'car') updateVehicle(carState, dt, CAR_PARAMS);
     else if (mode === 'moto') updateVehicle(motoState, dt, MOTO_PARAMS);
     else updateFoot(dt);
+    updatePedestrians(dt);
     updateCamera(dt);
     updateDayNight(dt);
     syncMeshes(dt);
@@ -721,7 +841,7 @@ function loop(ts) {
 
   stepSim(dt);
 
-  renderer.render(scene, camera);
+  composer.render();
   window.__frameCount = (window.__frameCount || 0) + 1;
   requestAnimationFrame(loop);
 }
@@ -758,6 +878,7 @@ function setKey(key, val) {
     case 'Shift': keys.shift = val; break;
     case ' ': if (val && !keys.space) spaceEdge = true; keys.space = val; break;
     case 'f': case 'F': if (val && !keys.f) fEdge = true; keys.f = val; break;
+    case 'e': case 'E': if (val && !keys.punch) punchEdge = true; keys.punch = val; break;
   }
 }
 window.addEventListener('keydown', (e) => {
@@ -767,7 +888,7 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => setKey(e.key, false));
 window.addEventListener('blur', () => {
-  keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = false;
+  keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = keys.punch = false;
   resetJoy();
 });
 
@@ -783,7 +904,7 @@ function bindHold(el, fn) {
 }
 bindHold(document.getElementById('t-run'), (v) => keys.shift = v);
 
-const JOY_RADIUS = 46;
+const JOY_RADIUS = 18;
 function updateJoyFromEvent(e) {
   const rect = joystickEl.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
@@ -799,12 +920,14 @@ function updateJoyFromEvent(e) {
 function resetJoy() {
   joy.x = 0; joy.y = 0; joy.active = false; joy.pointerId = null;
   joystickKnob.style.transform = 'translate(0px, 0px)';
+  joystickEl.classList.remove('active');
 }
 joystickEl.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   joystickEl.setPointerCapture(e.pointerId);
   joy.pointerId = e.pointerId;
   joy.active = true;
+  joystickEl.classList.add('active');
   updateJoyFromEvent(e);
 });
 joystickEl.addEventListener('pointermove', (e) => {
@@ -817,6 +940,8 @@ document.getElementById('t-action').addEventListener('touchstart', (e) => { e.pr
 document.getElementById('t-action').addEventListener('click', () => { fEdge = true; });
 document.getElementById('t-jump').addEventListener('touchstart', (e) => { e.preventDefault(); if (!keys.space) spaceEdge = true; }, { passive: false });
 document.getElementById('t-jump').addEventListener('click', () => { spaceEdge = true; });
+document.getElementById('t-punch').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; }, { passive: false });
+document.getElementById('t-punch').addEventListener('click', () => { punchEdge = true; });
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
   touchControls.classList.remove('hidden');
@@ -828,24 +953,27 @@ btnRestartPause.addEventListener('click', () => { screenPause.classList.add('hid
 btnPause.addEventListener('click', togglePause);
 
 resize();
-renderer.render(scene, camera);
+composer.render();
 
 window.__frameCount = 0;
 window.__debug = () => ({
   frames: window.__frameCount,
   mode, foot: { x: foot.x, z: foot.z, yaw: foot.yaw, speed: foot.speed },
-  car: { x: carState.x, z: carState.z, speed: carState.speed },
-  moto: { x: motoState.x, z: motoState.z, speed: motoState.speed },
+  car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed },
+  moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),
   distMoto: Math.hypot(foot.x - motoState.x, foot.z - motoState.z),
+  pedCount: getPedestrians().length,
+  peds: getPedestrians().map(p => ({ x: p.x, z: p.z, state: p.state })),
 });
 // test-only hooks: deterministic stepping independent of real time / rAF throttling
 window.__setKeys = (patch) => Object.assign(keys, patch);
 window.__pressF = () => { fEdge = true; };
 window.__pressSpace = () => { spaceEdge = true; };
+window.__pressPunch = () => { punchEdge = true; };
 window.__stepFrames = (n, dtMs = 16.6) => {
   for (let i = 0; i < n; i++) stepSim(dtMs / 1000);
-  renderer.render(scene, camera);
+  composer.render();
 };
 window.__setRunning = (v) => { running = v; };
 window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
@@ -860,10 +988,54 @@ window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
   }
   keys.up = keys.left = keys.right = false;
   for (let f = 0; f < 10; f++) stepSim(1 / 60);
-  renderer.render(scene, camera);
+  composer.render();
   return window.__debug();
 };
-window.__setDayTime = (t) => { dayTime = t; for (let f = 0; f < 3; f++) stepSim(1 / 60); renderer.render(scene, camera); return window.__debug(); };
+window.__forceMode = (m) => { mode = m; character.group.visible = m === 'foot'; return window.__debug(); };
+window.__setVehiclePos = (which, x, z, yaw, speed = 0) => {
+  const state = which === 'car' ? carState : motoState;
+  state.x = x; state.z = z; state.yaw = yaw; state.speed = speed;
+  composer.render();
+  return window.__debug();
+};
+window.__driveHitNearestPed = (maxIters = 600) => {
+  const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
+  if (!state) return window.__debug();
+  for (let i = 0; i < maxIters; i++) {
+    let best = null, bestD = Infinity;
+    for (const p of getPedestrians()) {
+      if (p.state === 'down' || p.state === 'gettingUp') continue;
+      const dd = Math.hypot(p.x - state.x, p.z - state.z);
+      if (dd < bestD) { bestD = dd; best = p; }
+    }
+    if (!best || bestD < 0.9) break;
+    const desiredYaw = Math.atan2(best.x - state.x, best.z - state.z);
+    const diff = ((desiredYaw - state.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    keys.up = true; keys.down = false;
+    keys.left = diff > 0.05; keys.right = diff < -0.05;
+    for (let f = 0; f < 3; f++) stepSim(1 / 60);
+  }
+  keys.left = keys.right = false;
+  composer.render();
+  return window.__debug();
+};
+window.__driveTo = (targetX, targetZ, within, maxIters = 400) => {
+  const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
+  if (!state) return window.__debug();
+  for (let i = 0; i < maxIters; i++) {
+    const dx = targetX - state.x, dz = targetZ - state.z;
+    if (Math.hypot(dx, dz) <= within) break;
+    const desiredYaw = Math.atan2(dx, dz);
+    const diff = ((desiredYaw - state.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    keys.up = true; keys.down = false;
+    keys.left = diff > 0.05; keys.right = diff < -0.05;
+    for (let f = 0; f < 4; f++) stepSim(1 / 60);
+  }
+  keys.left = keys.right = false;
+  composer.render();
+  return window.__debug();
+};
+window.__setDayTime = (t) => { dayTime = t; for (let f = 0; f < 3; f++) stepSim(1 / 60); composer.render(); return window.__debug(); };
 window.__brakeToStop = (which, maxIters = 200) => {
   const state = which === 'car' ? carState : motoState;
   mode = which; // ensure the vehicle is actually being simulated
@@ -873,6 +1045,6 @@ window.__brakeToStop = (which, maxIters = 200) => {
     for (let f = 0; f < 4; f++) stepSim(1 / 60);
   }
   keys.up = keys.down = false;
-  renderer.render(scene, camera);
+  composer.render();
   return window.__debug();
 };

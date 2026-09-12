@@ -6,6 +6,9 @@
 <title>OPEN CITY — Meridian Bay</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
 </head>
 <body>
   <div id="game-wrap">
@@ -13,9 +16,11 @@
     <canvas id="minimap" width="140" height="140"></canvas>
 
     <div id="hud">
-      <div class="hud-item"><span class="label">מהירות</span><span id="hud-speed">0</span><span class="unit">קמ״ש</span></div>
-      <div class="hud-item"><span class="label">מצב</span><span id="hud-mode">הליכה</span></div>
-      <div class="hud-item"><span class="label">שעה</span><span id="hud-clock">☀️ יום</span></div>
+      <span class="hud-stat"><b id="hud-speed">0</b><small>קמ״ש</small></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-mode">הליכה</b></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-clock">☀️ יום</b></span>
     </div>
 
     <div id="hud-msg"></div>
@@ -29,6 +34,7 @@
         <div><strong>Shift</strong><span>ספרינט</span></div>
         <div><strong>Space</strong><span>קפיצה</span></div>
         <div><strong>F</strong><span>כניסה/יציאה מהרכב</span></div>
+        <div><strong>E</strong><span>אגרוף</span></div>
       </div>
       <button id="btn-start" class="btn">התחל שיטוט</button>
     </div>
@@ -47,6 +53,7 @@
       </div>
       <div class="br-actions">
         <button id="t-action" class="br-btn br-btn-action">F</button>
+        <button id="t-punch" class="br-btn br-btn-punch">👊</button>
         <button id="t-run" class="br-btn br-btn-run">🏃</button>
         <button id="t-jump" class="br-btn br-btn-jump">⤴</button>
       </div>

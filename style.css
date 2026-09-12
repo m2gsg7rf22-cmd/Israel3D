@@ -35,14 +35,15 @@ body {
 
 #minimap {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 110px;
-  height: 110px;
+  top: 38px;
+  right: 8px;
+  width: 68px;
+  height: 68px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   pointer-events: none;
   z-index: 5;
+  opacity: 0.85;
 }
 
 #hud-msg {
@@ -67,49 +68,45 @@ body {
   opacity: 1;
 }
 
-/* ---------- HUD ---------- */
+/* ---------- HUD: slim telemetry bar pinned to the top edge ---------- */
 #hud {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 130px;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 26px;
   display: flex;
-  justify-content: flex-start;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(8, 11, 18, 0.5);
+  backdrop-filter: blur(3px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   pointer-events: none;
-  font-weight: bold;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   z-index: 5;
 }
 
-.hud-item {
-  background: rgba(10, 14, 23, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-  padding: 6px 12px;
+.hud-stat {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 70px;
-  backdrop-filter: blur(2px);
+  align-items: baseline;
+  gap: 3px;
+  font-size: 11px;
+  color: #ffd23f;
+  white-space: nowrap;
 }
 
-.hud-item .label {
-  font-size: 11px;
-  opacity: 0.7;
+.hud-stat small {
+  font-size: 8px;
+  opacity: 0.65;
   font-weight: normal;
 }
 
-.hud-item #hud-speed,
-.hud-item #hud-mode,
-.hud-item #hud-clock {
-  font-size: 20px;
-  color: #ffd23f;
-}
-
-.hud-item .unit {
-  font-size: 10px;
-  opacity: 0.6;
+.hud-sep {
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 #hud-speed {
@@ -209,15 +206,15 @@ body {
 /* ---------- Pause button ---------- */
 .icon-btn {
   position: absolute;
-  top: 10px;
+  top: 2px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(10, 14, 23, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #fff;
-  font-size: 16px;
-  border-radius: 8px;
-  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 3px 9px;
   cursor: pointer;
   z-index: 15;
 }
@@ -241,25 +238,31 @@ body {
 
 .joystick {
   position: absolute;
-  left: 26px;
-  bottom: 26px;
-  width: 118px;
-  height: 118px;
+  left: 18px;
+  bottom: 18px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.28);
+  opacity: 0.3;
+  transition: opacity 0.12s ease;
   pointer-events: auto;
   touch-action: none;
+}
+
+.joystick.active {
+  opacity: 0.6;
 }
 
 .joystick-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 52px;
-  height: 52px;
-  margin-left: -26px;
-  margin-top: -26px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.38);
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -268,10 +271,10 @@ body {
 
 .br-actions {
   position: absolute;
-  right: 20px;
-  bottom: 18px;
-  width: 190px;
-  height: 175px;
+  right: 12px;
+  bottom: 12px;
+  width: 108px;
+  height: 100px;
   pointer-events: none;
 }
 
@@ -285,33 +288,45 @@ body {
   font-weight: bold;
   user-select: none;
   backdrop-filter: blur(2px);
+  opacity: 0.55;
+  transition: opacity 0.12s ease, background 0.12s ease;
 }
 
 .br-btn:active {
+  opacity: 0.95;
   background: rgba(255, 255, 255, 0.32);
 }
 
 .br-btn-jump {
-  width: 86px;
-  height: 86px;
-  font-size: 28px;
+  width: 46px;
+  height: 46px;
+  font-size: 16px;
   right: 0;
   bottom: 0;
   background: rgba(255, 95, 95, 0.28);
 }
 
 .br-btn-run {
-  width: 62px;
-  height: 62px;
-  font-size: 20px;
-  right: 96px;
-  bottom: 14px;
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+  right: 54px;
+  bottom: 6px;
+}
+
+.br-btn-punch {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  right: 4px;
+  bottom: 54px;
+  background: rgba(255, 190, 80, 0.25);
 }
 
 .br-btn-action {
-  width: 56px;
-  height: 56px;
-  font-size: 17px;
-  right: 34px;
-  bottom: 104px;
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
+  right: 46px;
+  bottom: 58px;
 }
