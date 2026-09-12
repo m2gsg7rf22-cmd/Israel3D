@@ -86,24 +86,41 @@ export function spendCash(amount) {
   return true;
 }
 
+// marker proximity now offers a mission instead of silently auto-starting
+// one -- pendingMarkerIdx is set while parked in a zone with no active job,
+// and acceptPendingMission() (called from game.js on a keypress) is what
+// actually starts it
+let pendingMarkerIdx = null;
+
+export function acceptPendingMission() {
+  if (pendingMarkerIdx === null || delivery) return false;
+  const i = pendingMarkerIdx;
+  const kind = markers[i].kind;
+  const toIdx = pickDestination(i);
+  if (kind === 'taxi') {
+    delivery = { toIdx, timeLeft: TAXI_TIME, totalTime: TAXI_TIME, kind };
+    showSplash('נוסע עלה לרכב! קחו אותו ליעד', 1.8);
+  } else {
+    const reward = 2000 + Math.floor(Math.random() * 6000);
+    delivery = { toIdx, timeLeft: DELIVERY_TIME, totalTime: DELIVERY_TIME, reward, kind };
+    showSplash('משלוח החל! הגיעו ליעד בזמן', 1.8);
+  }
+  pendingMarkerIdx = null;
+  return true;
+}
+
 export function updateMissions(dt, playerX, playerZ, isVehicle) {
   const pulse = 0.6 + Math.sin(performance.now() * 0.004) * 0.4;
   for (const m of markers) m.mesh.material.emissiveIntensity = 1.2 + pulse;
 
+  let prompt = null;
   if (!delivery && isVehicle) {
+    pendingMarkerIdx = null;
     for (let i = 0; i < markers.length; i++) {
       const d = Math.hypot(markers[i].x - playerX, markers[i].z - playerZ);
       if (d < MARKER_RADIUS) {
-        const kind = markers[i].kind;
-        const toIdx = pickDestination(i);
-        if (kind === 'taxi') {
-          delivery = { toIdx, timeLeft: TAXI_TIME, totalTime: TAXI_TIME, kind };
-          showSplash('נוסע עלה לרכב! קחו אותו ליעד', 1.8);
-        } else {
-          const reward = 2000 + Math.floor(Math.random() * 6000);
-          delivery = { toIdx, timeLeft: DELIVERY_TIME, totalTime: DELIVERY_TIME, reward, kind };
-          showSplash('משלוח החל! הגיעו ליעד בזמן', 1.8);
-        }
+        pendingMarkerIdx = i;
+        prompt = { kind: markers[i].kind, text: markers[i].kind === 'taxi' ? 'נוסע ממתין — לחצו F כדי לקחת אותו' : 'משלוח זמין כאן — לחצו F כדי לקבל אותו' };
         break;
       }
     }
@@ -139,7 +156,7 @@ export function updateMissions(dt, playerX, playerZ, isVehicle) {
 
   for (const r of ramps) if (r.cooldown > 0) r.cooldown -= dt;
 
-  return { score, waypoint, splash: splashTimer > 0 ? splashText : null };
+  return { score, waypoint, splash: splashTimer > 0 ? splashText : null, prompt };
 }
 
 export function checkRampLaunch(state) {

@@ -291,6 +291,29 @@ body {
 
 #gps-hud.hidden { display: none; }
 
+#mission-prompt {
+  position: absolute;
+  bottom: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 11, 18, 0.75);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 210, 63, 0.6);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffd23f;
+  pointer-events: none;
+  z-index: 6;
+  animation: mission-prompt-pulse 1s ease-in-out infinite;
+}
+#mission-prompt.hidden { display: none; }
+@keyframes mission-prompt-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
 #gps-arrow {
   display: inline-block;
   font-size: 14px;

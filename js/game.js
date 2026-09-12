@@ -7,7 +7,7 @@ import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from '
 import { initAudio, playPunch, setMuted } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
-import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash } from './missions.js';
+import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission } from './missions.js';
 import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
@@ -104,6 +104,8 @@ const panelRace = document.getElementById('panel-race');
 const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings, panelRace];
 const shopBadge = document.getElementById('shop-badge');
 
+const missionPrompt = document.getElementById('mission-prompt');
+const missionPromptText = document.getElementById('mission-prompt-text');
 const raceHud = document.getElementById('race-hud');
 const raceLapEl = document.getElementById('race-lap');
 const raceProgressFill = document.getElementById('race-progress-fill');
@@ -886,8 +888,13 @@ window.addEventListener('resize', resize);
 // ============================================================
 function stepSim(dt) {
   if (fEdge) {
-    const handled = tryEnterExit();
-    if (!handled) trySafehousePurchase(foot.x, foot.z);
+    // F is already "enter/exit vehicle" -- a pending mission prompt takes
+    // priority over that so accepting a job doesn't accidentally hop out
+    const tookMission = mode !== 'foot' && lastMissionInfo.prompt && acceptPendingMission();
+    if (!tookMission) {
+      const handled = tryEnterExit();
+      if (!handled) trySafehousePurchase(foot.x, foot.z);
+    }
     fEdge = false;
   }
   if (punchEdge) { tryPunch(pendingWeapon); punchEdge = false; pendingWeapon = null; }
@@ -980,6 +987,9 @@ function stepSim(dt) {
     } else if (!missionInfo.splash) {
       lastSplash = null;
     }
+
+    missionPrompt.classList.toggle('hidden', !missionInfo.prompt);
+    if (missionInfo.prompt) missionPromptText.textContent = missionInfo.prompt.text;
 
     if (isRaceActive()) {
       const raceInfo = updateRacing(dt, carState);
