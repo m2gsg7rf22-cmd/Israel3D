@@ -47,6 +47,13 @@ if ('serviceWorker' in navigator) {
       <span id="mission-timer">0s</span>
     </div>
 
+    <div id="race-hud" class="hidden">
+      <span id="race-lap">סבב 1/2</span>
+      <div id="race-progress-bar"><div id="race-progress-fill"></div></div>
+      <span id="race-position">מקום 1/8</span>
+      <button id="race-exit" title="יציאה מהמרוץ">✕ יציאה</button>
+    </div>
+
     <div id="prison-hud" class="hidden">
       <div id="prison-title">🚨 משימת בריחה</div>
       <div id="prison-text"></div>
@@ -67,6 +74,7 @@ if ('serviceWorker' in navigator) {
       <button id="menu-garage" class="side-btn side-btn-cyan" title="מוסך">🚗</button>
       <button id="menu-map" class="side-btn side-btn-grey" title="מפה וניווט">📍</button>
       <button id="menu-shop" class="side-btn side-btn-yellow" title="חנות שיפורים">🛠️<span id="shop-badge" class="badge hidden"></span></button>
+      <button id="menu-race" class="side-btn side-btn-red" title="מרוצים">🏁</button>
       <button id="menu-home" class="side-btn side-btn-blue" title="חזרה לבסיס">🏠</button>
       <button id="menu-settings" class="side-btn side-btn-grey" title="הגדרות">⚙️</button>
     </div>
@@ -114,6 +122,26 @@ if ('serviceWorker' in navigator) {
           <div class="shop-row" data-kind="moto" data-key="accel"><span>מנוע (תאוצה)</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
           <div class="shop-row" data-kind="moto" data-key="maxV"><span>מהירות מקס'</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
           <div class="shop-row" data-kind="moto" data-key="steerSpeed"><span>שליטה בהיגוי</span><span class="shop-level">Lv 0/3</span><button class="shop-buy">שדרג</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-race" class="panel hidden">
+      <div class="panel-card panel-card-race">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🏁 מרוצים</h2>
+        <div id="race-list" class="race-list"></div>
+        <div class="race-custom">
+          <h3>🔧 מסלול מותאם אישית</h3>
+          <div class="race-custom-row">
+            <span>אורך:</span>
+            <div id="race-length-opts" class="race-opt-group"></div>
+          </div>
+          <div class="race-custom-row">
+            <span>קושי:</span>
+            <div id="race-diff-opts" class="race-opt-group"></div>
+          </div>
+          <button id="race-custom-start" class="btn-small btn-wide">🚦 צור והתחל מרוץ</button>
         </div>
       </div>
     </div>

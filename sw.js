@@ -2,7 +2,7 @@
 // three.js CDN -- there isn't one, everything is vendored locally) so the
 // installed PWA opens and plays without a network round trip on repeat
 // launches. Bump CACHE_NAME whenever shipped files change meaningfully.
-const CACHE_NAME = 'meridian-bay-v1';
+const CACHE_NAME = 'meridian-bay-v2';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -15,13 +15,16 @@ const CORE_ASSETS = [
   './js/characterRig.js',
   './js/cityArchitecture.js',
   './js/garage.js',
+  './js/landmarks.js',
   './js/mapGPS.js',
   './js/missions.js',
   './js/modShop.js',
   './js/natureEngine.js',
   './js/pedestrians.js',
   './js/police.js',
+  './js/prison.js',
   './js/props.js',
+  './js/racing.js',
   './js/safehouse.js',
   './js/saveSystem.js',
   './js/vehicleController.js',

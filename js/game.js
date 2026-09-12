@@ -20,6 +20,7 @@ import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
 import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z } from './prison.js';
+import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS } from './racing.js';
 import { getSave } from './saveSystem.js';
 
 // ============================================================
@@ -98,8 +99,15 @@ const panelMap = document.getElementById('panel-map');
 const panelShop = document.getElementById('panel-shop');
 const panelCustomizer = document.getElementById('panel-customizer');
 const panelSettings = document.getElementById('panel-settings');
-const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings];
+const panelRace = document.getElementById('panel-race');
+const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings, panelRace];
 const shopBadge = document.getElementById('shop-badge');
+
+const raceHud = document.getElementById('race-hud');
+const raceLapEl = document.getElementById('race-lap');
+const raceProgressFill = document.getElementById('race-progress-fill');
+const racePositionEl = document.getElementById('race-position');
+const raceExitBtn = document.getElementById('race-exit');
 
 const screenStart = document.getElementById('screen-start');
 const screenPause = document.getElementById('screen-pause');
@@ -318,6 +326,12 @@ function resolveCircleVsBuildings(state, radius) {
 // context passed into the extracted vehicleController.updateVehicle() so it
 // can reach world collision/lamp logic that still lives in this module
 const vehicleCtx = { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
+
+initRacing(scene, THREE, {
+  BLOCK, CITY_HALF, buildCar, updateVehicle, CAR_PARAMS,
+  resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY, addCash,
+  setDayTime: (t) => { dayTime = t; }, getDayTime: () => dayTime,
+});
 
 function updateFoot(dt) {
   const { steer, throttle } = steerThrottle();
@@ -657,8 +671,72 @@ try {
 document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
+document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });
 document.getElementById('menu-home').addEventListener('click', goHome);
 document.getElementById('menu-settings').addEventListener('click', () => { closeAllPanels(); panelSettings.classList.remove('hidden'); });
+
+// ============================================================
+// Racing
+// ============================================================
+let selectedLength = LENGTHS[1].id;
+let selectedDifficulty = DIFFICULTIES[1].id;
+
+function renderRacePanel() {
+  const listEl = document.getElementById('race-list');
+  listEl.innerHTML = '';
+  for (const r of getRaceList()) {
+    const item = document.createElement('div');
+    item.className = 'race-item';
+    item.innerHTML = `
+      <h4><span>${r.name}</span><span class="race-meta">${r.difficulty}</span></h4>
+      <p>${r.description}</p>
+      <div class="race-meta">${r.laps} סבבים • 7 יריבים${r.night ? ' • לילה' : ''}</div>
+      <button class="btn-small race-start-btn" type="button">🏁 התחל מרוץ</button>
+    `;
+    item.querySelector('.race-start-btn').addEventListener('click', () => beginSelectedRace(r.id));
+    listEl.appendChild(item);
+  }
+
+  const lengthOpts = document.getElementById('race-length-opts');
+  lengthOpts.innerHTML = '';
+  for (const l of LENGTHS) {
+    const b = document.createElement('button');
+    b.className = 'race-opt-btn' + (l.id === selectedLength ? ' active' : '');
+    b.textContent = l.label;
+    b.type = 'button';
+    b.addEventListener('click', () => { selectedLength = l.id; renderRacePanel(); });
+    lengthOpts.appendChild(b);
+  }
+  const diffOpts = document.getElementById('race-diff-opts');
+  diffOpts.innerHTML = '';
+  for (const d of DIFFICULTIES) {
+    const b = document.createElement('button');
+    b.className = 'race-opt-btn' + (d.id === selectedDifficulty ? ' active' : '');
+    b.textContent = d.label;
+    b.type = 'button';
+    b.addEventListener('click', () => { selectedDifficulty = d.id; renderRacePanel(); });
+    diffOpts.appendChild(b);
+  }
+}
+
+function beginSelectedRace(raceId) {
+  closeAllPanels();
+  mode = 'car';
+  character.group.visible = false;
+  startRace(raceId, carState);
+}
+
+document.getElementById('race-custom-start').addEventListener('click', () => {
+  closeAllPanels();
+  mode = 'car';
+  character.group.visible = false;
+  startCustomRace(selectedLength, selectedDifficulty, carState);
+});
+
+raceExitBtn.addEventListener('click', () => {
+  exitRace();
+  raceHud.classList.add('hidden');
+});
 
 // ============================================================
 // Resize
@@ -731,6 +809,19 @@ function stepSim(dt) {
       lastSplash = missionInfo.splash;
     } else if (!missionInfo.splash) {
       lastSplash = null;
+    }
+
+    if (isRaceActive()) {
+      const raceInfo = updateRacing(dt, carState);
+      raceHud.classList.remove('hidden');
+      raceLapEl.textContent = `סבב ${raceInfo.lap}/${raceInfo.totalLaps}`;
+      raceProgressFill.style.width = raceInfo.progressPct + '%';
+      racePositionEl.textContent = `מקום ${raceInfo.position}/${raceInfo.totalRacers}`;
+      if (raceInfo.justFinished) {
+        showMessage(raceInfo.position === 1 ? '🏆 ניצחת במרוץ!' : `סיימת במקום ${raceInfo.position}!`);
+      }
+    } else {
+      raceHud.classList.add('hidden');
     }
 
     updateCameraRig(dt, { mode, carState, motoState, foot, sprinting: keys.shift });

@@ -15,7 +15,11 @@ export const MOTO_PARAMS = { accel: 26, maxV: 24, brake: -30, steerBase: 0.62, s
 // this fails, and only gets hidden (not removed) once the real model is in.
 const CAR_MODEL_PATH = '../assets/models/ferrari.glb';
 
-export function buildCar(THREE, scene) {
+// loadModel: false skips the real-glTF fetch/Draco-decode entirely and just
+// keeps the procedural car -- used for AI race bots (7+ of them can spawn at
+// once) so a race doesn't kick off a dozen simultaneous Draco decodes, which
+// is exactly the kind of thing that tanks performance on a phone
+export function buildCar(THREE, scene, { loadModel = true } = {}) {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#287e91', roughness: 0.3, metalness: 0.6 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 4.2), bodyMat);
@@ -54,7 +58,7 @@ export function buildCar(THREE, scene) {
     group, wheels: [wheels[2], wheels[3]], steerWheels: [wheels[0], wheels[1]], tailMat,
     proceduralMeshes: [body, cabin, ...wheels, headL, headR, tailL, tailR],
   };
-  loadCarModel(THREE, rig);
+  if (loadModel) loadCarModel(THREE, rig);
   return rig;
 }
 
