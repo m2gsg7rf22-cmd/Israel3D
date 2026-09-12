@@ -18,6 +18,7 @@ import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
+import { initLandmark, updateLandmark, getLandmarkAABB } from './landmarks.js';
 import { getSave } from './saveSystem.js';
 
 // ============================================================
@@ -150,13 +151,15 @@ scene.add(dirLight.target);
 // ============================================================
 // City, nature, vehicles, character
 // ============================================================
-const cityOpts = { grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED, skipBlocks: [{ bx: 4, bz: 4 }] };
+const cityOpts = { grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED, skipBlocks: [{ bx: 4, bz: 4 }, { bx: 8, bz: 8 }] };
 const cityArch = initCityArchitecture(scene, THREE, cityOpts);
 const { buildingAABBs, nightLights, shopSigns, buildingMaterials, hitLampPoles, updateLampPoles, lampPoles } = cityArch;
 // the safehouse structures aren't part of cityArchitecture's own generation,
 // so they were never in this list -- without this, vehicles and the player
 // on foot could walk/drive straight through the safehouse buildings
 buildingAABBs.push(...getHouseAABBs(BLOCK, CITY_HALF));
+buildingAABBs.push(getLandmarkAABB(BLOCK, CITY_HALF));
+initLandmark(scene, THREE);
 initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
 const car = buildCar(THREE, scene);
@@ -602,6 +605,7 @@ function stepSim(dt) {
     updateProps(dt);
     updateLampPoles(dt);
     updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
+    updateLandmark(dt);
 
     const playerState = mode === 'car' ? carState : mode === 'moto' ? motoState : foot;
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');

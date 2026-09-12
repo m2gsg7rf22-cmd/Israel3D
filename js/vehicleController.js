@@ -3,9 +3,17 @@ import { increaseWanted } from './police.js';
 import { vehicleHitProps, scrapeSparks, spawnSmoke } from './props.js';
 import { checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd } from './missions.js';
 import { playImpact } from './audio.js';
+import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
+import { DRACOLoader } from '../vendor/loaders/DRACOLoader.js';
 
 export const CAR_PARAMS = { accel: 20, maxV: 32, brake: -32, steerBase: 0.5, steerSpeed: 0.6, turnDenom: 7, drag: 0.11, radius: 2.3 };
 export const MOTO_PARAMS = { accel: 26, maxV: 24, brake: -30, steerBase: 0.62, steerSpeed: 0.75, turnDenom: 5, drag: 0.14, radius: 1.1 };
+
+// Real car model (Khronos/three.js's public-domain Ferrari sample, Draco-
+// compressed), loaded exactly like characterRig.js loads the player model:
+// the procedural car below still builds first and stays the fallback if
+// this fails, and only gets hidden (not removed) once the real model is in.
+const CAR_MODEL_PATH = '../assets/models/ferrari.glb';
 
 export function buildCar(THREE, scene) {
   const group = new THREE.Group();
@@ -41,7 +49,49 @@ export function buildCar(THREE, scene) {
   const tailR = tailL.clone(); tailR.position.x = 0.6;
   group.add(tailL, tailR);
   scene.add(group);
-  return { group, wheels: [wheels[2], wheels[3]], steerWheels: [wheels[0], wheels[1]], tailMat };
+
+  const rig = {
+    group, wheels: [wheels[2], wheels[3]], steerWheels: [wheels[0], wheels[1]], tailMat,
+    proceduralMeshes: [body, cabin, ...wheels, headL, headR, tailL, tailR],
+  };
+  loadCarModel(THREE, rig);
+  return rig;
+}
+
+function loadCarModel(THREE, rig) {
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('../vendor/libs/draco/gltf/');
+  const loader = new GLTFLoader();
+  loader.setDRACOLoader(draco);
+  loader.load(
+    CAR_MODEL_PATH,
+    (gltf) => {
+      for (const mesh of rig.proceduralMeshes) mesh.visible = false;
+      const model = gltf.scene;
+      model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      rig.group.add(model);
+
+      const fl = model.getObjectByName('wheel_fl');
+      const fr = model.getObjectByName('wheel_fr');
+      const rl = model.getObjectByName('wheel_rl');
+      const rr = model.getObjectByName('wheel_rr');
+      if (fl && fr && rl && rr) {
+        rig.steerWheels = [fl, fr];
+        rig.wheels = [rl, rr];
+      }
+      const tailMesh = model.getObjectByName('lights_red');
+      if (tailMesh) {
+        tailMesh.material = tailMesh.material.clone(); // don't share a material two vehicles could tint independently
+        rig.tailMat = tailMesh.material;
+      }
+      console.info('[vehicleController] loaded real car model:', CAR_MODEL_PATH);
+    },
+    undefined,
+    () => {
+      // expected default state if the file is ever moved/removed -- the
+      // procedural car (already visible) just stays as-is
+    }
+  );
 }
 
 export function buildMoto(THREE, scene) {
