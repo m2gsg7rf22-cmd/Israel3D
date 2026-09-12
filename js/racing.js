@@ -17,6 +17,7 @@ let THREE_, scene_, opts_;
 let raceActive = false;
 let currentRace = null;
 let checkpoints = [];
+let checkpointMarkers = [];
 let bots = [];
 let playerProgress = { cp: 0, laps: 0, finished: false };
 let placements = [];
@@ -149,12 +150,37 @@ function makeCarParamsWithGrip(grip) {
   return { ...p, steerBase: p.steerBase * grip, steerSpeed: p.steerSpeed * grip, drag: p.drag * (2 - grip) };
 }
 
+function clearCheckpointMarkers() {
+  for (const m of checkpointMarkers) {
+    m.geometry.dispose();
+    m.material.dispose();
+    scene_.remove(m);
+  }
+  checkpointMarkers = [];
+}
+
+// a green ring standing upright at each checkpoint, like a gate to drive
+// through -- the player's current target glows brighter than the rest so
+// it always reads clearly which one to head for next
+function buildCheckpointMarkers() {
+  clearCheckpointMarkers();
+  for (const cp of checkpoints) {
+    const mat = new THREE_.MeshBasicMaterial({ color: '#3ddc5a', transparent: true, opacity: 0.22, side: THREE_.DoubleSide });
+    const mesh = new THREE_.Mesh(new THREE_.TorusGeometry(3.2, 0.35, 12, 24), mat);
+    mesh.position.set(cp.x, 1.6, cp.z);
+    scene_.add(mesh);
+    checkpointMarkers.push(mesh);
+  }
+}
+
 function beginRace(raceDef, playerCarState) {
   const gridRoute = raceDef.route();
   checkpoints = toWorldRoute(gridRoute);
   currentRace = raceDef;
   placements = [];
   playerProgress = { cp: 0, laps: 0, finished: false };
+  buildCheckpointMarkers();
+  if (checkpointMarkers[0]) { checkpointMarkers[0].material.opacity = 0.55; checkpointMarkers[0].material.color.set('#7dffa0'); }
 
   // teleport the player's car to the start line, facing the first->second checkpoint direction
   const start = checkpoints[0], next = checkpoints[1];
@@ -217,10 +243,18 @@ export function exitRace() {
   if (!raceActive) return;
   for (const b of bots) disposeBot(b.rig);
   bots = [];
+  clearCheckpointMarkers();
   raceActive = false;
   currentRace = null;
   if (prevDayTime !== null && opts_.setDayTime) opts_.setDayTime(prevDayTime);
   prevDayTime = null;
+}
+
+// route + player's current checkpoint index, for the side minimap; null
+// when no race is active so the minimap can fall back to its normal view
+export function getMinimapRoute() {
+  if (!raceActive) return null;
+  return { points: checkpoints, currentCp: playerProgress.cp };
 }
 
 export function isRaceActive() { return raceActive; }
@@ -268,7 +302,16 @@ export function updateRacing(dt, playerCarState) {
     for (const w of [...b.rig.wheels, ...b.rig.steerWheels]) w.rotation.x += spin;
   }
 
+  const cpBefore = playerProgress.cp;
   if (!playerProgress.finished) advanceProgress(playerProgress, playerCarState.x, playerCarState.z);
+  if (playerProgress.cp !== cpBefore) {
+    for (let i = 0; i < checkpointMarkers.length; i++) {
+      const isCurrent = i === playerProgress.cp;
+      checkpointMarkers[i].material.opacity = isCurrent ? 0.55 : 0.22;
+      checkpointMarkers[i].material.color.set(isCurrent ? '#7dffa0' : '#3ddc5a');
+    }
+  }
+  for (const m of checkpointMarkers) m.rotation.y += dt * 0.6; // slow spin reads clearly as "drive through me"
 
   const justFinished = playerProgress.finished && placements.indexOf('player') === -1;
   if (justFinished) {

@@ -238,6 +238,12 @@ export function getPrisonEntryPoint() {
   return { x: PRISON_X + HALF - 6, z: PRISON_Z, yaw: -Math.PI / 2 };
 }
 
+// true once the player has walked back out past the gate line without
+// actually completing an escape mission -- there's no free walk-out, per spec
+export function isOutsideCompound(x) {
+  return x > PRISON_X + HALF - 2;
+}
+
 // four thin wall-segment AABBs (with a gap for the east gate), NOT one solid
 // box over the whole compound -- a solid box would also cover the yard, and
 // resolveCircleVsBuildings would eject the player the instant they're

@@ -19,8 +19,8 @@ import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
-import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z } from './prison.js';
-import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS } from './racing.js';
+import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
+import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute } from './racing.js';
 import { getSave, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
 // ============================================================
@@ -235,9 +235,13 @@ function hideMissionTargetBeacon() {
 }
 
 // called when police.js reports an arrest (5m ring held for 4s straight)
+const JAIL_RELEASE_SECONDS = 7 * 60;
+let jailTimer = 0;
+
 function startPrisonMission() {
   inPrison = true;
   activeMission = pickRandomMission();
+  jailTimer = JAIL_RELEASE_SECONDS;
   const entry = getPrisonEntryPoint();
   mode = 'foot';
   character.group.visible = true;
@@ -265,6 +269,18 @@ function escapePrison() {
   foot.x = entry.x + 14; foot.z = entry.z; foot.yaw = Math.PI / 2; foot.y = 0; foot.vy = 0; foot.speed = 0;
   addCash(1000);
   showMessage('🎉 ברחת מהכלא בהצלחה! +₪1000');
+}
+
+// no escape mission attempted in time: the player just gets let out with no
+// reward, per the fixed 7-minute release timer
+function releaseFromJail() {
+  inPrison = false;
+  hideMissionTargetBeacon();
+  prisonHud.classList.add('hidden');
+  activeMission = null;
+  const entry = getPrisonEntryPoint();
+  foot.x = entry.x + 14; foot.z = entry.z; foot.yaw = Math.PI / 2; foot.y = 0; foot.vy = 0; foot.speed = 0;
+  showMessage('🔓 שוחררת מהכלא לאחר ריצוי הזמן');
 }
 initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED });
 
@@ -510,6 +526,27 @@ function drawMinimap() {
     minimapCtx.fillStyle = '#ff5f5f';
     minimapCtx.fillRect((motoState.x + CITY_HALF) * scale - 2, (motoState.z + CITY_HALF) * scale - 2, 4, 4);
   }
+
+  const route = getMinimapRoute();
+  if (route) {
+    minimapCtx.strokeStyle = 'rgba(61, 220, 90, 0.8)';
+    minimapCtx.lineWidth = 2;
+    minimapCtx.beginPath();
+    for (let i = 0; i < route.points.length; i++) {
+      const p = route.points[i];
+      const px = (p.x + CITY_HALF) * scale, pz = (p.z + CITY_HALF) * scale;
+      if (i === 0) minimapCtx.moveTo(px, pz); else minimapCtx.lineTo(px, pz);
+    }
+    minimapCtx.closePath();
+    minimapCtx.stroke();
+    const cur = route.points[route.currentCp];
+    if (cur) {
+      minimapCtx.fillStyle = '#7dffa0';
+      minimapCtx.beginPath();
+      minimapCtx.arc((cur.x + CITY_HALF) * scale, (cur.z + CITY_HALF) * scale, 4, 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+  }
 }
 
 // ============================================================
@@ -751,6 +788,7 @@ function renderRacePanel() {
 }
 
 function beginSelectedRace(raceId) {
+  if (inPrison) { showMessage('אי אפשר להתחיל מרוץ בזמן שאתה בכלא!'); return; }
   closeAllPanels();
   mode = 'car';
   character.group.visible = false;
@@ -758,6 +796,7 @@ function beginSelectedRace(raceId) {
 }
 
 document.getElementById('race-custom-start').addEventListener('click', () => {
+  if (inPrison) { showMessage('אי אפשר להתחיל מרוץ בזמן שאתה בכלא!'); return; }
   closeAllPanels();
   mode = 'car';
   character.group.visible = false;
@@ -846,9 +885,20 @@ function stepSim(dt) {
 
     if (inPrison && activeMission) {
       if (isSeenByGuard(foot.x, foot.z)) caughtByGuard();
+      else if (isOutsideCompound(foot.x)) {
+        // no walking straight out the gate for free -- back inside
+        const entry = getPrisonEntryPoint();
+        foot.x = entry.x; foot.z = entry.z; foot.yaw = entry.yaw; foot.speed = 0;
+        showMessage('אין דרך החוצה בלי להשלים את משימת הבריחה!');
+      }
       const distToTarget = distanceToMissionTarget(activeMission, foot.x, foot.z);
+      jailTimer -= dt;
       if (distToTarget < TARGET_REACH_RADIUS) escapePrison();
-      else prisonStatus.textContent = `מרחק ליעד: ${Math.round(distToTarget)}מ'`;
+      else if (jailTimer <= 0) releaseFromJail();
+      else {
+        const mm = Math.floor(jailTimer / 60), ss = Math.floor(jailTimer % 60);
+        prisonStatus.textContent = `מרחק ליעד: ${Math.round(distToTarget)}מ' • שחרור אוטומטי בעוד ${mm}:${String(ss).padStart(2, '0')}`;
+      }
     }
 
     const missionInfo = updateMissions(dt, playerState.x, playerState.z, mode !== 'foot');
