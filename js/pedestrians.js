@@ -208,7 +208,12 @@ function advanceWalk(ped, dt) {
   separationPush(ped, dt);
 }
 
-export function updatePedestrians(dt) {
+// player position is optional (older callers just skip fight-back/hit
+// detection) -- when given, a pedestrian in 'fight' state closes in on it
+// and periodically lands a hit, returned as { playerAttacked, x, z } so the
+// caller can apply a knockback/message the same way it does for anything else
+export function updatePedestrians(dt, playerX, playerZ) {
+  let playerAttacked = false, attackX = 0, attackZ = 0;
   for (const ped of peds) {
     if (ped.state === 'idle') {
       ped.swayPhase += dt * 1.4;
@@ -216,6 +221,25 @@ export function updatePedestrians(dt) {
     } else if (ped.state === 'walk') {
       advanceWalk(ped, dt);
       ped.phase += dt * (2.2 + ped.speed * 1.1);
+    } else if (ped.state === 'fight' && playerX !== undefined) {
+      const dx = playerX - ped.x, dz = playerZ - ped.z;
+      const dist = Math.hypot(dx, dz) || 0.01;
+      ped.yaw = Math.atan2(dx, dz);
+      ped.fightTimer -= dt;
+      ped.attackCooldown = (ped.attackCooldown || 0) - dt;
+      if (dist > 1.1) {
+        ped.speed = damp(ped.speed, 3.2, 6, dt);
+        ped.x += (dx / dist) * ped.speed * dt;
+        ped.z += (dz / dist) * ped.speed * dt;
+      } else {
+        ped.speed = damp(ped.speed, 0, 6, dt);
+        if (ped.attackCooldown <= 0) {
+          ped.attackCooldown = 1.1;
+          playerAttacked = true; attackX = dx / dist; attackZ = dz / dist;
+        }
+      }
+      ped.phase += dt * (2.2 + ped.speed * 1.3);
+      if (ped.fightTimer <= 0) { ped.state = 'flee'; ped.fleeTimer = 2 + Math.random(); ped.fleeDir = { x: -dx / dist, z: -dz / dist }; }
     } else if (ped.state === 'flee') {
       ped.yaw = Math.atan2(ped.fleeDir.x, ped.fleeDir.z);
       ped.speed = damp(ped.speed, ped.fleeSpeed, 6, dt);
@@ -260,7 +284,7 @@ export function updatePedestrians(dt) {
     let swing = 0, armSwing = 0, sway = 0;
     if (ped.state === 'idle') {
       sway = Math.sin(ped.swayPhase) * 0.05;
-    } else if (ped.state === 'walk' || ped.state === 'flee') {
+    } else if (ped.state === 'walk' || ped.state === 'flee' || ped.state === 'fight') {
       const speedFactor = clamp(ped.speed / ped.walkSpeed, 0, 1.6);
       swing = Math.sin(ped.phase) * 0.5 * speedFactor;
       armSwing = swing * 0.8;
@@ -281,6 +305,7 @@ export function updatePedestrians(dt) {
     parts[key].instanceMatrix.needsUpdate = true;
     if (parts[key].instanceColor) parts[key].instanceColor.needsUpdate = true;
   }
+  return { playerAttacked, attackX, attackZ };
 }
 
 export function punchNear(x, z, yaw, range = 1.5, halfAngleCos = 0.45) {
@@ -294,9 +319,16 @@ export function punchNear(x, z, yaw, range = 1.5, halfAngleCos = 0.45) {
     const dot = (dx / dist) * fx + (dz / dist) * fz;
     if (dot < halfAngleCos) continue;
     hitAny = true;
-    p.state = 'flee';
-    p.fleeTimer = 3 + Math.random() * 2;
-    p.fleeDir = { x: dx / dist, z: dz / dist };
+    // most civilians run; roughly a third stand their ground and fight back
+    if (Math.random() < 0.35) {
+      p.state = 'fight';
+      p.fightTimer = 4 + Math.random() * 2;
+      p.attackCooldown = 0.6;
+    } else {
+      p.state = 'flee';
+      p.fleeTimer = 3 + Math.random() * 2;
+      p.fleeDir = { x: dx / dist, z: dz / dist };
+    }
     for (const q of peds) {
       if (q === p || q.state === 'down' || q.state === 'gettingUp') continue;
       const qd = Math.hypot(q.x - x, q.z - z);

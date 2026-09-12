@@ -892,7 +892,13 @@ function stepSim(dt) {
     if (mode === 'car') { if (updateVehicle(carState, dt, CAR_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
     else if (mode === 'moto') { if (updateVehicle(motoState, dt, MOTO_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
     else updateFoot(dt);
-    updatePedestrians(dt);
+    const pedInfo = updatePedestrians(dt, foot.x, foot.z);
+    if (pedInfo.playerAttacked && mode === 'foot') {
+      foot.x += pedInfo.attackX * 0.5;
+      foot.z += pedInfo.attackZ * 0.5;
+      foot.speed *= 0.4;
+      showMessage('אזרח תוקף אותך בחזרה!');
+    }
     updateProps(dt);
     updateLampPoles(dt);
     updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
