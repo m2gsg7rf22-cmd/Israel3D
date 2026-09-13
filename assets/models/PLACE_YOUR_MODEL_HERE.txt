@@ -1,0 +1,13 @@
+Drop your player model here as: player.glb
+
+characterRig.js loads it automatically from ./assets/models/player.glb on
+next page load. A single self-contained .glb (glTF Binary) is required --
+if you only have an .fbx, re-export it as .glb (Blender: File > Export >
+glTF 2.0, format "glTF Binary (.glb)"; Mixamo: download as FBX, then run it
+through Blender once to re-export as .glb).
+
+If the .glb includes animation clips named containing "idle", "walk", or
+"run"/"sprint" (case-insensitive), they'll be crossfaded automatically based
+on movement speed. If it has no matching clips (common for a static/posed
+scan like a Renderpeople export), the model will still move and rotate with
+the player but won't animate its limbs.

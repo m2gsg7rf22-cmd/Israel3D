@@ -1,14 +1,333 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#050810" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a1230'/%3E%3Ccircle cx='50' cy='50' r='34' fill='%2338bdf8'/%3E%3C/svg%3E" />
-    <title>Port Spider-Azure</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>OPEN CITY — Meridian Bay</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0e17">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Meridian Bay">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+// If the game module throws during its (synchronous, heavy) startup, every
+// button on the page -- including "start" -- would otherwise just silently
+// do nothing with zero feedback, which looks exactly like "the button
+// doesn't work". Surface it instead of failing silently.
+window.addEventListener('error', (e) => {
+  if (window.__gameBooted) return;
+  showBootError(e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (window.__gameBooted) return;
+  showBootError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+});
+function showBootError(message) {
+  if (document.getElementById('boot-error')) return;
+  const box = document.createElement('div');
+  box.id = 'boot-error';
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:#0a0e17;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;font-family:sans-serif;direction:rtl;';
+  box.innerHTML = '<div style="font-size:40px">⚠️</div><h2 style="margin:0;color:#ff5f5f">המשחק נתקל בשגיאה בטעינה</h2><p style="max-width:480px;color:#cdd6e3;font-size:14px">רעננו את הדף (משכו מטה או Ctrl/Cmd+R). אם זה חוזר על עצמו, נסו לנקות את מטמון הדפדפן.</p><pre style="max-width:90%;overflow:auto;color:#7c8494;font-size:11px;text-align:left;direction:ltr"></pre>';
+  box.querySelector('pre').textContent = message || '';
+  document.body.appendChild(box);
+}
+</script>
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game"></canvas>
+    <canvas id="minimap" width="140" height="140"></canvas>
+
+    <div id="boost-hud" class="hidden">
+      <span id="boost-label">בוסט</span>
+      <div id="boost-bar"><div id="boost-fill"></div></div>
+    </div>
+
+    <div id="hud">
+      <span class="hud-stat"><b id="hud-speed">0</b><small>קמ״ש</small></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-mode">הליכה</b></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-clock">☀️ יום</b></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-cash">₪0</b></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat"><b id="hud-level">Lv 1</b></span>
+      <span class="hud-sep"></span>
+      <span class="hud-stat" id="hud-wanted">
+        <i class="star" data-i="1">★</i><i class="star" data-i="2">★</i><i class="star" data-i="3">★</i><i class="star" data-i="4">★</i><i class="star" data-i="5">★</i>
+      </span>
+    </div>
+
+    <div id="mission-hud" class="hidden">
+      <span id="mission-arrow">➤</span>
+      <span id="mission-dist">0m</span>
+      <span id="mission-timer">0s</span>
+    </div>
+
+    <div id="mission-prompt" class="hidden">📦 <span id="mission-prompt-text"></span></div>
+
+    <div id="race-hud" class="hidden">
+      <span id="race-lap">סבב 1/2</span>
+      <div id="race-progress-bar"><div id="race-progress-fill"></div></div>
+      <span id="race-position">מקום 1/8</span>
+      <button id="race-unstick" title="תקוע? לחץ לשחרור מיידי">🔧 שחרור</button>
+      <button id="race-exit" title="יציאה מהמרוץ">✕ יציאה</button>
+    </div>
+
+    <div id="prison-hud" class="hidden">
+      <div id="prison-title">🚨 משימת בריחה</div>
+      <div id="prison-text"></div>
+      <div id="prison-status"></div>
+    </div>
+
+    <div id="arrest-warning" class="hidden">⚠️ ניידת בטווח מעצר!</div>
+
+    <div id="gps-hud" class="hidden">
+      <span id="gps-arrow">➤</span>
+      <span id="gps-dist">0m</span>
+      <button id="gps-cancel" title="בטל ניווט">✕</button>
+    </div>
+
+    <div id="hud-msg"></div>
+
+    <div id="side-menu" class="side-menu hidden">
+      <button id="menu-garage" class="side-btn side-btn-cyan" title="מוסך">🚗</button>
+      <button id="menu-map" class="side-btn side-btn-grey" title="מפה וניווט">📍</button>
+      <button id="menu-shop" class="side-btn side-btn-yellow" title="חנות שיפורים">🛠️<span id="shop-badge" class="badge hidden"></span></button>
+      <button id="menu-race" class="side-btn side-btn-red" title="מרוצים">🏁</button>
+      <button id="menu-home" class="side-btn side-btn-blue" title="חזרה לבסיס">🏠</button>
+      <button id="menu-settings" class="side-btn side-btn-grey" title="הגדרות">⚙️</button>
+    </div>
+
+    <div id="panel-garage" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🚗 מוסך</h2>
+        <div class="garage-row"><span>מכונית</span>
+          <button id="garage-car-spawn" class="btn-small">טלפורט</button>
+          <button id="garage-car-repair" class="btn-small">תיקון</button>
+        </div>
+        <div class="garage-row"><span>אופנוע</span>
+          <button id="garage-moto-spawn" class="btn-small">טלפורט</button>
+          <button id="garage-moto-repair" class="btn-small">תיקון</button>
+        </div>
+        <div class="cust-section">
+          <h3>🏎️ אולם תצוגה</h3>
+          <div id="dealership-list" class="dealer-list"></div>
+        </div>
+        <div class="cust-section">
+          <h3>🎨 צבע רכב</h3>
+          <div class="swatch-row" id="car-color-row">
+            <button class="swatch" style="background:#5aa9e6" data-color="#5aa9e6"></button>
+            <button class="swatch" style="background:#e6b85a" data-color="#e6b85a"></button>
+            <button class="swatch" style="background:#c0392b" data-color="#c0392b"></button>
+            <button class="swatch" style="background:#2ecc71" data-color="#2ecc71"></button>
+            <button class="swatch" style="background:#f1c40f" data-color="#f1c40f"></button>
+            <button class="swatch" style="background:#1c1c1c" data-color="#1c1c1c"></button>
+            <button class="swatch" style="background:#ffffff" data-color="#ffffff"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-map" class="panel panel-map hidden">
+      <div class="panel-card panel-card-map">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>📍 מפה</h2>
+        <div class="map-canvas-wrap">
+          <canvas id="map-canvas" width="600" height="600"></canvas>
+          <div id="map-tooltip" class="map-tooltip hidden"></div>
+        </div>
+        <p class="map-hint">הקישו על המפה כדי להציב יעד ניווט • רחפו/הקישו על נקודת עניין לפרטים</p>
+      </div>
+    </div>
+
+    <div id="panel-shop" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🛠️ חנות שיפורים</h2>
+        <div class="shop-cash">מזומן: <b id="shop-cash">₪0</b></div>
+        <div class="shop-section">
+          <h3>🚗 מכונית</h3>
+          <div class="shop-row" data-kind="car" data-key="topSpeed"><span>מהירות מקס'</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="car" data-key="braking"><span>בלימה</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="car" data-key="grip"><span>אחיזת כביש</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="car" data-key="boost"><span>בוסט (Shift)</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+        </div>
+        <div class="shop-section">
+          <h3>🏍️ אופנוע</h3>
+          <div class="shop-row" data-kind="moto" data-key="topSpeed"><span>מהירות מקס'</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="moto" data-key="braking"><span>בלימה</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="moto" data-key="grip"><span>אחיזת כביש</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+          <div class="shop-row" data-kind="moto" data-key="boost"><span>בוסט (Shift)</span><span class="shop-level">Lv 0/6</span><button class="shop-buy">שדרג</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-race" class="panel hidden">
+      <div class="panel-card panel-card-race">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🏁 מרוצים</h2>
+        <div id="race-list" class="race-list"></div>
+        <div class="race-custom">
+          <h3>🔧 מסלול מותאם אישית</h3>
+          <div class="race-custom-row">
+            <span>אורך:</span>
+            <div id="race-length-opts" class="race-opt-group"></div>
+          </div>
+          <div class="race-custom-row">
+            <span>קושי:</span>
+            <div id="race-diff-opts" class="race-opt-group"></div>
+          </div>
+          <button id="race-custom-start" class="btn-small btn-wide">🚦 צור והתחל מרוץ</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-customizer" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>🎨 התאמת דמות</h2>
+        <div class="cust-section">
+          <h3>לבוש מוכן</h3>
+          <div class="preset-row">
+            <button class="preset-btn" data-shirt="#2f5fa8" data-pants="#33384a">👕 קז'ואל</button>
+            <button class="preset-btn" data-shirt="#1c1c1c" data-pants="#1a1a1a">🕴️ עסקים</button>
+            <button class="preset-btn" data-shirt="#c0392b" data-pants="#7f8c8d">🏃 ספורט</button>
+            <button class="preset-btn" data-shirt="#111111" data-pants="#111111">🥷 רחוב</button>
+            <button class="preset-btn" data-shirt="#f1c40f" data-pants="#2c3e50">✨ יוקרה</button>
+          </div>
+        </div>
+        <div class="cust-section">
+          <h3>חולצה</h3>
+          <div class="swatch-row" data-target="shirt">
+            <button class="swatch" style="background:#2f5fa8" data-color="#2f5fa8"></button>
+            <button class="swatch" style="background:#c0392b" data-color="#c0392b"></button>
+            <button class="swatch" style="background:#27ae60" data-color="#27ae60"></button>
+            <button class="swatch" style="background:#f1c40f" data-color="#f1c40f"></button>
+            <button class="swatch" style="background:#8e44ad" data-color="#8e44ad"></button>
+            <button class="swatch" style="background:#1c1c1c" data-color="#1c1c1c"></button>
+          </div>
+        </div>
+        <div class="cust-section">
+          <h3>מכנסיים</h3>
+          <div class="swatch-row" data-target="pants">
+            <button class="swatch" style="background:#33384a" data-color="#33384a"></button>
+            <button class="swatch" style="background:#1a1a1a" data-color="#1a1a1a"></button>
+            <button class="swatch" style="background:#5b3a29" data-color="#5b3a29"></button>
+            <button class="swatch" style="background:#7f8c8d" data-color="#7f8c8d"></button>
+            <button class="swatch" style="background:#2c3e50" data-color="#2c3e50"></button>
+            <button class="swatch" style="background:#c0392b" data-color="#c0392b"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-settings" class="panel hidden">
+      <div class="panel-card">
+        <button class="panel-close" title="סגור">✕</button>
+        <h2>⚙️ הגדרות</h2>
+        <button id="settings-mute" class="btn-small btn-wide">🔈 השתק צלילים</button>
+        <button id="settings-skip-time" class="btn-small btn-wide">⏩ דלג בזמן היום</button>
+        <button id="settings-wardrobe" class="btn-small btn-wide">🎨 התאמת דמות</button>
+        <button id="settings-knife" class="btn-small btn-wide">🔪 החלף לסכין / אגרוף</button>
+        <div class="settings-row">
+          <span>גודל כפתורי מגע</span>
+          <div class="settings-sizes">
+            <button class="size-btn" data-size="0.75">קטן</button>
+            <button class="size-btn active" data-size="1">רגיל</button>
+            <button class="size-btn" data-size="1.35">גדול</button>
+          </div>
+        </div>
+        <div class="settings-row settings-row-stack">
+          <span>רמת קושי משטרה</span>
+          <div class="settings-sizes" id="police-diff-opts">
+            <button class="diff-btn" data-diff="easy">קל</button>
+            <button class="diff-btn active" data-diff="normal">בינוני</button>
+            <button class="diff-btn" data-diff="hard">קשה</button>
+            <button class="diff-btn" data-diff="pro">פרו</button>
+          </div>
+        </div>
+        <div class="settings-row settings-row-stack">
+          <span>🔑 קוד צ'יט</span>
+          <div class="cheat-row">
+            <input id="cheat-input" type="text" placeholder="הקלד קוד...">
+            <button id="cheat-submit" class="btn-small">הפעל</button>
+          </div>
+          <div id="cheat-msg" class="cheat-msg"></div>
+        </div>
+        <div id="admin-controls" class="settings-row settings-row-stack hidden">
+          <span>👑 יכולות מנהל</span>
+          <p class="cheat-msg">🕊️ טיסה: בהליכה, קפצו פעמיים (Space) — לחיצה שנייה באוויר ממריאה. מוחזק Space לעלייה, F לירידה. נחיתה מסיימת את הטיסה.</p>
+          <div class="settings-sizes">
+            <button id="admin-invisible-toggle" class="size-btn">👻 היעלמות: כבויה</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="screen-worlds" class="screen">
+      <h1>🏙️ OPEN CITY <span>Meridian Bay</span></h1>
+      <p class="desc">בחרו עולם קיים כדי להמשיך בו, או צרו עולם חדש.</p>
+      <div id="world-list" class="world-list"></div>
+      <div class="world-new-row">
+        <input id="world-new-name" type="text" maxlength="24" placeholder="שם לעולם חדש (לא חובה)">
+        <button id="world-new-btn" class="btn btn-secondary">➕ עולם חדש</button>
+      </div>
+    </div>
+
+    <div id="screen-start" class="screen hidden">
+      <h1>🏙️ OPEN CITY <span>Meridian Bay</span></h1>
+      <p class="desc">עולם פתוח קטן: מכונית, אופנוע והליכה חופשית בעיר עם בניינים וחנויות.<br>התקרבו לרכב ולחצו F כדי לעלות עליו, ושוב F כדי לרדת.<br>זהירות מהמשטרה — פגיעה בהולכי רגל מעלה את רמת החיפוש.</p>
+      <div class="controls-info">
+        <div><strong>⬅️➡️ / A D</strong><span>היגוי</span></div>
+        <div><strong>⬆️⬇️ / W S</strong><span>גז / בלם-אחורה</span></div>
+        <div><strong>Shift</strong><span>ספרינט / ניטרו</span></div>
+        <div><strong>Space</strong><span>קפיצה</span></div>
+        <div><strong>F</strong><span>כניסה/יציאה מהרכב</span></div>
+        <div><strong>E</strong><span>אגרוף</span></div>
+      </div>
+      <button id="btn-start" class="btn">התחל שיטוט</button>
+    </div>
+
+    <div id="screen-pause" class="screen hidden">
+      <h1>⏸ השהיה</h1>
+      <button id="btn-resume" class="btn">המשך</button>
+      <button id="btn-restart-pause" class="btn btn-secondary">🏠 חזרה לבחירת עולם</button>
+    </div>
+
+    <button id="btn-pause" class="icon-btn hidden" title="השהיה">⏸</button>
+
+    <div id="touch-controls" class="hidden">
+      <div id="joystick" class="joystick">
+        <div id="joystick-knob" class="joystick-knob"></div>
+      </div>
+      <div class="br-actions">
+        <button id="t-action" class="br-btn br-btn-action">F</button>
+        <button id="t-punch" class="br-btn br-btn-punch" title="אגרוף">👊</button>
+        <button id="t-knife" class="br-btn br-btn-knife" title="סכין">🔪</button>
+        <button id="t-run" class="br-btn br-btn-run">🏃</button>
+        <button id="t-jump" class="br-btn br-btn-jump">⤴</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="rotate-hint">
+    <div class="rotate-icon">📱</div>
+    <p>סובב את המכשיר לרוחב (Landscape) כדי לשחק</p>
+  </div>
+
+<script type="module" src="js/game.js"></script>
+</body>
 </html>
