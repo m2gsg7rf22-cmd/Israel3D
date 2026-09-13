@@ -33,6 +33,7 @@ const DEFAULTS = {
   activeMissionId: null,
   jailTimerRemaining: 0,
   wantedLevel: 0,
+  adminUnlocked: false,
 };
 
 function readWorldsIndex() {

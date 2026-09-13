@@ -172,10 +172,18 @@ export function initPolice(scene, THREE, resolveCircleVsBuildings) {
   resolveCircleVsBuildings_ = resolveCircleVsBuildings;
 }
 
-export function getWantedLevel() { return wanted; }
-export function isFlashing() { return flashTimer > 0; }
+// cheat-code invisibility (see cheatCodes.js/game.js): while active, the
+// police cheat-side entirely -- no new offense raises the wanted level, the
+// HUD reads 0 stars, and any unit already chasing despawns, rather than
+// invisibility only affecting how the *player* is rendered
+let invisible_ = false;
+export function setPlayerInvisible(v) { invisible_ = v; }
+
+export function getWantedLevel() { return invisible_ ? 0 : wanted; }
+export function isFlashing() { return !invisible_ && flashTimer > 0; }
 
 export function increaseWanted(playerX, playerZ, amount = 1) {
+  if (invisible_) return;
   if (hitCooldown > 0) return;
   hitCooldown = 2.5;
   wanted = clamp(wanted + amount, 0, 5);
@@ -186,6 +194,12 @@ export function increaseWanted(playerX, playerZ, amount = 1) {
 // playerState: { x, z, yaw, speed } of whatever the player currently controls (car/moto/foot)
 // isVehicle: true if player is in a car/moto (used for ramming + roadblocks)
 export function updatePolice(dt, playerState, isVehicle) {
+  if (invisible_) {
+    if (cars.length || officers.length) despawnAll();
+    setSirenActive(false);
+    arrestTimer = 0;
+    return { wanted: 0, flashing: false, nearestDist: Infinity, rammed: false, runOverFoot: false, arrestProgress: 0, inArrestRange: false, arrested: false };
+  }
   if (hitCooldown > 0) hitCooldown -= dt;
   if (flashTimer > 0) flashTimer -= dt;
 

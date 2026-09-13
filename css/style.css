@@ -579,6 +579,28 @@ body {
   border-color: #3f6eff;
 }
 
+.cheat-row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+.cheat-row input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.cheat-msg {
+  font-size: 12px;
+  min-height: 14px;
+  color: #7dffa0;
+}
+.cheat-msg.error { color: #ff8080; }
+
 .garage-row {
   display: flex;
   align-items: center;

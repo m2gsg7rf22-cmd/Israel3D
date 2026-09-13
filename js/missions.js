@@ -1,5 +1,6 @@
 import { loadSave, saveState } from './saveSystem.js';
 import { addXP } from './xpSystem.js';
+import { isAdminUnlocked } from './cheatCodes.js';
 
 let THREE_, scene_;
 const ramps = [];
@@ -94,6 +95,7 @@ export function consumeLevelUp() {
 // used by the mod shop: returns false (and spends nothing) if the player
 // can't afford it, so callers never need to check getScore() first
 export function spendCash(amount) {
+  if (isAdminUnlocked()) return true; // infinite money -- nothing is ever deducted
   if (score < amount) return false;
   score -= amount;
   saveState({ cash: score });

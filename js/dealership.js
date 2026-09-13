@@ -80,6 +80,19 @@ export function setCarColor(color) {
   carRig_.applyColor(color);
 }
 
+// a cheat-code car unlock: same end state as buying the tier (owned +
+// active), but skips the level/price gate entirely -- used by cheatCodes.js
+export function grantCarTier(tier) {
+  const save = getSave();
+  if (!tierDef(tier)) return false;
+  if (!save.ownedCarTiers.includes(tier)) {
+    saveState({ ownedCarTiers: [...save.ownedCarTiers, tier] });
+  }
+  saveState({ activeCarTier: tier });
+  applyTierVisualsAndStats(tier);
+  return true;
+}
+
 export function renderDealership() {
   if (!panelEl_) return;
   const listEl = panelEl_.querySelector('#dealership-list');

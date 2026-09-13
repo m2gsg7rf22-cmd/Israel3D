@@ -334,12 +334,19 @@ function advanceProgress(entry, x, z) {
   }
 }
 
-// invisible walls: clamps `state` to within TRACK_HALF_WIDTH of the straight
-// line between the checkpoint the car just left and the one it's heading to,
-// so neither the player nor the bots can drive off the designated route --
-// decomposing into an along-track + across-track component (rather than a
-// signed-distance-and-push) sidesteps sign-convention bugs and works the
-// same regardless of which way the leg is oriented
+// a paved-feeling buffer beyond the lane's own half-width where a car can
+// drift freely (no clamp, no speed penalty) before the actual invisible
+// wall kicks in -- lets the player and bots cut a corner onto the "shoulder"
+// like a real road edge instead of bouncing off a hard line the instant
+// they touch it, which is what made the raw lane edge feel glitchy
+const TRACK_SHOULDER_WIDTH = 2.5;
+
+// invisible walls: clamps `state` to within TRACK_HALF_WIDTH + the shoulder
+// buffer of the straight line between the checkpoint the car just left and
+// the one it's heading to, so neither the player nor the bots can drive off
+// the designated route -- decomposing into an along-track + across-track
+// component (rather than a signed-distance-and-push) sidesteps sign-
+// convention bugs and works the same regardless of which way the leg is oriented
 function resolveTrackBounds(state, cpIndex) {
   const n = checkpoints.length;
   const prev = checkpoints[(cpIndex - 1 + n) % n];
@@ -351,8 +358,9 @@ function resolveTrackBounds(state, cpIndex) {
   const along = px * ux + pz * uz;
   let perpX = px - along * ux, perpZ = pz - along * uz;
   const perpDist = Math.hypot(perpX, perpZ);
-  if (perpDist > TRACK_HALF_WIDTH) {
-    const scale = TRACK_HALF_WIDTH / perpDist;
+  const hardLimit = TRACK_HALF_WIDTH + TRACK_SHOULDER_WIDTH;
+  if (perpDist > hardLimit) {
+    const scale = hardLimit / perpDist;
     perpX *= scale; perpZ *= scale;
     state.x = prev.x + along * ux + perpX;
     state.z = prev.z + along * uz + perpZ;

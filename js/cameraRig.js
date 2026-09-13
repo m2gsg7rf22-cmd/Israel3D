@@ -135,6 +135,29 @@ export function __testSetZoom(z) {
   camZoom = camZoomTarget;
 }
 
+export function __testSetYawOffset(yaw) { camYawOffset = yaw; }
+
+// the camera's current world-space yaw, relative to the followed
+// character/vehicle's own yaw, is just this offset -- exposed so foot
+// movement can be computed relative to "the direction the camera is
+// looking" instead of the character's own (possibly stale) facing
+export function getCameraYawOffset() { return camYawOffset; }
+
+// lets the character's own turn-toward-camera-direction logic (game.js's
+// updateFoot) "transfer" part of the orbit offset into the character's own
+// yaw as it turns, keeping (character yaw + offset) constant. Without this,
+// since the camera orbit is defined *relative to the character's own yaw*
+// (see updateCameraRig's `angle = targetYaw + camYawOffset`), turning the
+// character toward "where the camera is looking" would just make the
+// camera's absolute direction slide along with it forever -- a moving
+// target the character can never actually reach, spinning in place
+// indefinitely instead of settling. Subtracting exactly what was added to
+// the character's yaw keeps the camera's true world-facing direction fixed
+// throughout the turn, so it visually re-centers behind the character
+// exactly as they finish turning to face it, same as any normal 3rd-person
+// follow-cam.
+export function nudgeCameraYawOffset(delta) { camYawOffset += delta; }
+
 export function getCameraZoomDebug() {
   return { zoom: camZoom, zoomTarget: camZoomTarget, yawOffset: camYawOffset, pitchOffset: camPitchOffset, activeTouches: activeTouches.size };
 }

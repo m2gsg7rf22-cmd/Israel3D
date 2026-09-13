@@ -23,7 +23,9 @@ console.log('dense checkpoint count (expect way more than 4 corners):', track.ch
 // the ayalon route's first leg runs along +x (checkpoints[0]->[1] differ in
 // x, not z), so the corridor's perpendicular axis here is z -- shove the car
 // 40m sideways in z (off the route) with zero speed and confirm the wall
-// clamp pulls it back within TRACK_HALF_WIDTH (5m) of the centerline
+// clamp pulls it back within TRACK_HALF_WIDTH + TRACK_SHOULDER_WIDTH (7.5m)
+// of the centerline -- the shoulder itself (5m-7.5m) is a free zone, only
+// the outer edge is a hard wall
 const before = await page.evaluate(() => window.__testRaceTrack());
 console.log('car pos before off-track teleport:', JSON.stringify(before.car));
 
@@ -33,7 +35,18 @@ await page.evaluate(() => {
 });
 await page.evaluate(() => window.__stepFrames(3));
 const afterShove = await page.evaluate(() => window.__testRaceTrack());
-console.log('car pos after 40m sideways (z) shove + 3 frames (z should snap back near start.z +/- 5):', JSON.stringify(afterShove.car));
+console.log('car pos after 40m sideways (z) shove + 3 frames (z should snap back near start.z +/- 7.5):', JSON.stringify(afterShove.car));
+
+// the shoulder zone (5m-7.5m off centerline) should be a completely free
+// zone -- no clamp, no speed penalty -- so driving there feels like a real
+// road edge, not a wall
+await page.evaluate(() => {
+  const d = window.__debug();
+  window.__setVehiclePos('car', d.car.x, d.car.z + 6.5, d.car.yaw, 8);
+});
+await page.evaluate(() => window.__stepFrames(3));
+const inShoulder = await page.evaluate(() => window.__debug().car);
+console.log('car on the shoulder (6.5m off centerline, should stay ~unclamped, speed should NOT be cut):', JSON.stringify(inShoulder));
 
 // now test auto stuck-recovery: point the car straight at the wall (yaw=0
 // drives along +z here) and hold throttle, so it keeps trying to push

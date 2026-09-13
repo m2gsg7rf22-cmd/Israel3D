@@ -5,7 +5,7 @@ import { UnrealBloomPass } from '../vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
 import { initAudio, playPunch, setMuted } from './audio.js';
-import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty } from './police.js';
+import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty, setPlayerInvisible } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
 import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
 import { getLevel, getXP, xpIntoLevel, xpPerLevel } from './xpSystem.js';
@@ -13,11 +13,12 @@ import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
 import { buildCharacter, applyLocomotionSwing, seatOnMoto, unseatFromMoto } from './characterRig.js';
-import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } from './cameraRig.js';
+import { initCameraRig, updateCameraRig, getCameraZoomDebug, getCameraYawOffset, nudgeCameraYawOffset, __testSetZoom, __testSetYawOffset } from './cameraRig.js';
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
-import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor } from './dealership.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, grantCarTier } from './dealership.js';
+import { applyCheatCode, isAdminUnlocked } from './cheatCodes.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
@@ -39,7 +40,7 @@ const CITY_SEED = 88213;
 
 const DAY_CYCLE_SECONDS = 180;
 
-const FOOT_WALK = 1.4, FOOT_RUN = 3.6, FOOT_SPRINT = 5.5, FOOT_TURN_RATE = 2.6;
+const FOOT_WALK = 1.4, FOOT_RUN = 3.6, FOOT_SPRINT = 5.5, FOOT_TURN_RATE = 11;
 const JUMP_V = 5.3, GRAVITY = 15.5;
 const ENTER_RANGE = 3.6, MAX_EXIT_SPEED = 4.2;
 
@@ -456,22 +457,60 @@ initRacing(scene, THREE, {
 initTraffic(scene, THREE, { BLOCK, CITY_HALF, buildCar, updateVehicle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY });
 spawnTraffic(26, 0, 0);
 
+// raw local (right, forward) input for on-foot movement, independent of the
+// vehicle-style steerThrottle() (which is a turn-rate + throttle pair, the
+// right scheme for driving but not for walking) -- straight from the
+// joystick or WASD, with no camera knowledge yet
+function footMoveVector() {
+  if (joy.active) return { right: clamp(joy.x, -1, 1), forward: clamp(-joy.y, -1, 1) };
+  return { right: (keys.right ? 1 : 0) - (keys.left ? 1 : 0), forward: (keys.up ? 1 : 0) - (keys.down ? 1 : 0) };
+}
+
 function updateFoot(dt) {
-  const { steer, throttle } = steerThrottle();
-  foot.yaw += steer * FOOT_TURN_RATE * dt;
-  const targetSpeed = (keys.shift ? FOOT_SPRINT : FOOT_RUN) * throttle;
+  const { right, forward } = footMoveVector();
+  const mag = Math.min(1, Math.hypot(right, forward));
+  if (mag > 0.04) {
+    // rotate the local input into world space using the camera's current
+    // yaw (character yaw + orbit offset), so "push forward" always means
+    // "walk toward where the camera is looking" -- not "keep walking the
+    // way I already happen to be facing", which is what the old tank-style
+    // steer+throttle scheme (still used for vehicles, where it's correct)
+    // gave on foot
+    const camYaw = foot.yaw + getCameraYawOffset();
+    const worldX = Math.cos(camYaw) * right + Math.sin(camYaw) * forward;
+    const worldZ = -Math.sin(camYaw) * right + Math.cos(camYaw) * forward;
+    const desiredYaw = Math.atan2(worldX, worldZ);
+    const diff = ((desiredYaw - foot.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    const maxStep = FOOT_TURN_RATE * dt;
+    const step = clamp(diff, -maxStep, maxStep);
+    foot.yaw += step;
+    // conserve (foot.yaw + cameraYawOffset) -- see nudgeCameraYawOffset's
+    // own comment for why, without this, the target the character is
+    // turning toward would slide away from it forever
+    nudgeCameraYawOffset(-step);
+  }
+  const targetSpeed = (keys.shift ? FOOT_SPRINT : FOOT_RUN) * mag;
   foot.speed = damp(foot.speed, targetSpeed, 13, dt);
   foot.x += Math.sin(foot.yaw) * foot.speed * dt;
   foot.z += Math.cos(foot.yaw) * foot.speed * dt;
   resolveCircleVsBuildings(foot, 0.32);
 
-  if (spaceEdge && foot.grounded) {
-    foot.vy = JUMP_V;
-    foot.grounded = false;
+  if (flyEnabled) {
+    // cheat-code fly mode: no gravity, hold Space to climb / Shift to
+    // descend, hover in place otherwise -- WASD/joystick still moves
+    // horizontally exactly as on the ground, just airborne
+    foot.vy = keys.space ? 6 : keys.shift ? -6 : 0;
+    foot.y = Math.max(0, foot.y + foot.vy * dt);
+    foot.grounded = foot.y <= 0;
+  } else {
+    if (spaceEdge && foot.grounded) {
+      foot.vy = JUMP_V;
+      foot.grounded = false;
+    }
+    foot.vy -= GRAVITY * dt;
+    foot.y += foot.vy * dt;
+    if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; }
   }
-  foot.vy -= GRAVITY * dt;
-  foot.y += foot.vy * dt;
-  if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; }
 
   foot.phase += dt * (2.2 + Math.abs(foot.speed) * 1.15);
   applyLocomotionSwing(character, foot.phase, foot.speed, FOOT_WALK, FOOT_RUN, dt);
@@ -673,7 +712,7 @@ function updateWantedHud() {
 }
 
 function updateMissionHud(missionInfo, playerState) {
-  hudCash.textContent = '₪' + missionInfo.score;
+  hudCash.textContent = isAdminUnlocked() ? '₪∞' : '₪' + missionInfo.score;
   hudLevel.textContent = 'Lv ' + getLevel();
   if (!missionInfo.waypoint) {
     missionHud.classList.add('hidden');
@@ -852,7 +891,56 @@ document.getElementById('menu-map').addEventListener('click', () => { closeAllPa
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });
 document.getElementById('menu-home').addEventListener('click', goHome);
-document.getElementById('menu-settings').addEventListener('click', () => { closeAllPanels(); panelSettings.classList.remove('hidden'); });
+document.getElementById('menu-settings').addEventListener('click', () => { closeAllPanels(); refreshAdminControls(); panelSettings.classList.remove('hidden'); });
+
+// ============================================================
+// Cheat codes / admin abilities
+// ============================================================
+const cheatInput = document.getElementById('cheat-input');
+const cheatMsg = document.getElementById('cheat-msg');
+const adminControls = document.getElementById('admin-controls');
+const adminFlyBtn = document.getElementById('admin-fly-toggle');
+const adminInvisibleBtn = document.getElementById('admin-invisible-toggle');
+
+let flyEnabled = false;
+let invisibleEnabled = false;
+
+function refreshAdminControls() {
+  adminControls.classList.toggle('hidden', !isAdminUnlocked());
+}
+
+// toggling material opacity directly on the character's own meshes -- a
+// cosmetic effect layered on top of setPlayerInvisible()'s gameplay effect
+// (police.js) rather than a substitute for it
+function setCharacterInvisible(v) {
+  character.group.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) { if (m) { m.transparent = true; m.opacity = v ? 0.12 : 1; } }
+  });
+}
+
+function submitCheatCode() {
+  const result = applyCheatCode(cheatInput.value, { addCash, ownCarTier: grantCarTier });
+  cheatMsg.textContent = result.message;
+  cheatMsg.classList.toggle('error', !result.ok);
+  if (result.ok) { cheatInput.value = ''; refreshAdminControls(); }
+}
+document.getElementById('cheat-submit').addEventListener('click', submitCheatCode);
+cheatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitCheatCode(); });
+
+adminFlyBtn.addEventListener('click', () => {
+  flyEnabled = !flyEnabled;
+  adminFlyBtn.textContent = flyEnabled ? '🕊️ טיסה: דלוקה' : '🕊️ טיסה: כבויה';
+  if (!flyEnabled && mode === 'foot') foot.vy = 0;
+});
+adminInvisibleBtn.addEventListener('click', () => {
+  invisibleEnabled = !invisibleEnabled;
+  adminInvisibleBtn.textContent = invisibleEnabled ? '👻 היעלמות: דלוקה' : '👻 היעלמות: כבויה';
+  setPlayerInvisible(invisibleEnabled);
+  setCharacterInvisible(invisibleEnabled);
+});
+refreshAdminControls();
 
 // ============================================================
 // Racing
@@ -1312,7 +1400,7 @@ window.__lightCount = () => {
 window.__frameCount = 0;
 window.__debug = () => ({
   frames: window.__frameCount,
-  mode, foot: { x: foot.x, z: foot.z, yaw: foot.yaw, speed: foot.speed },
+  mode, foot: { x: foot.x, z: foot.z, y: foot.y, yaw: foot.yaw, speed: foot.speed },
   car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting },
   moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),
@@ -1376,16 +1464,21 @@ window.__stepFrames = (n, dtMs = 16.6) => {
 };
 window.__setRunning = (v) => { running = v; };
 window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
+  // drives the joystick's (x, y) directly rather than keys.left/right --
+  // since updateFoot() now walks camera-relative (see its own comment),
+  // "steer left/right to face the target" no longer means what it used to;
+  // the joystick path lets this compute the exact local input needed to
+  // produce the target world angle for whatever the camera offset
+  // currently is, rather than assuming any particular offset
   for (let i = 0; i < maxIters; i++) {
     const dx = targetX - foot.x, dz = targetZ - foot.z;
     if (Math.hypot(dx, dz) <= within) break;
     const desiredYaw = Math.atan2(dx, dz);
-    const diff = ((desiredYaw - foot.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    keys.up = true; keys.down = false;
-    keys.left = diff > 0.05; keys.right = diff < -0.05;
+    const localAngle = desiredYaw - foot.yaw - getCameraYawOffset();
+    joy.active = true; joy.x = Math.sin(localAngle); joy.y = -Math.cos(localAngle);
     for (let f = 0; f < 6; f++) stepSim(1 / 60);
   }
-  keys.up = keys.left = keys.right = false;
+  joy.active = false; joy.x = 0; joy.y = 0;
   for (let f = 0; f < 10; f++) stepSim(1 / 60);
   composer.render();
   return window.__debug();
@@ -1466,6 +1559,7 @@ window.__driveTo = (targetX, targetZ, within, maxIters = 400) => {
 };
 window.__setDayTime = (t) => { dayTime = t; for (let f = 0; f < 3; f++) stepSim(1 / 60); composer.render(); return window.__debug(); };
 window.__setCameraZoomTarget = (z) => { __testSetZoom(z); return window.__debug(); };
+window.__setCameraYawOffset = (yaw) => { __testSetYawOffset(yaw); return window.__debug(); };
 window.__testRaceTheme = () => ({
   theme: getActiveRaceTheme(),
   bgHex: '#' + scene.background.getHexString(),
@@ -1478,6 +1572,7 @@ window.__testRaceTrack = () => {
   return { checkpointCount: route ? route.points.length : 0, currentCp: route ? route.currentCp : -1, car: { x: carState.x, z: carState.z } };
 };
 window.__testUnstick = () => { unstickPlayer(carState); return { x: carState.x, z: carState.z, speed: carState.speed }; };
+window.__testSpendCash = (amount) => ({ ok: spendCash(amount), scoreAfter: getScore() });
 window.__brakeToStop = (which, maxIters = 200) => {
   const state = which === 'car' ? carState : motoState;
   mode = which; // ensure the vehicle is actually being simulated
