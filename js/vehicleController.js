@@ -27,7 +27,7 @@ export const MOTO_PARAMS = { accel: 26, maxV: 24, brake: -30, steerBase: 0.62, s
 export const CAR_MODELS = [
   { tier: 1, path: '../assets/models/toycar.glb', yRotation: 0, excludeMeshNames: ['Fabric'] },
   { tier: 2, path: '../assets/models/cesiummilktruck.glb', yRotation: 0 },
-  { tier: 3, path: '../assets/models/carconcept.glb', yRotation: Math.PI },
+  { tier: 3, path: '../assets/models/carconcept.glb', yRotation: 0 },
   { tier: 4, path: '../assets/models/buggy.glb', yRotation: Math.PI / 2 },
   { tier: 5, path: '../assets/models/ferrari.glb', yRotation: Math.PI },
 ];
