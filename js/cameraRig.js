@@ -33,10 +33,20 @@ let pinchStartZoom = null;
 
 function pointsFrom(map) { return Array.from(map.values()); }
 
+function resetGestureState() {
+  activeTouches.clear();
+  dragLast = null;
+  pinchStartDist = null;
+  pinchStartZoom = null;
+}
+
 export function initCameraRig(camera, surfaceEl) {
   camera_ = camera;
 
   const onDown = (e) => {
+    if (e.pointerId !== undefined) {
+      try { surfaceEl.setPointerCapture?.(e.pointerId); } catch { /* pointer ended before capture */ }
+    }
     activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activeTouches.size === 1) {
       dragLast = { x: e.clientX, y: e.clientY };
@@ -76,6 +86,13 @@ export function initCameraRig(camera, surfaceEl) {
   surfaceEl.addEventListener('pointermove', onMove);
   surfaceEl.addEventListener('pointerup', onUp);
   surfaceEl.addEventListener('pointercancel', onUp);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  window.addEventListener('blur', resetGestureState);
+  window.addEventListener('pagehide', resetGestureState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') resetGestureState();
+  });
   surfaceEl.style.touchAction = 'none';
 }
 
