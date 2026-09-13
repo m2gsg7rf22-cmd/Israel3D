@@ -24,15 +24,25 @@ let playerProgress = { cp: 0, laps: 0, finished: false };
 let placements = [];
 let prevDayTime = null;
 
-const CHECKPOINT_RADIUS = 7;
+const CHECKPOINT_RADIUS = 9;
 // half-width of the invisible corridor walls on either side of the route
 // centerline, in meters -- close to the game's own STREET_W/2 (streets are
 // 10m wide) so the barrier reads as "stay on the road", not an arbitrary cage
 const TRACK_HALF_WIDTH = 5;
 // distance between successive dense checkpoints along each route leg, in
 // meters -- corner points from the coarse route are always kept exactly
-// (each leg starts at one), so this only fills in the gaps between them
-const CHECKPOINT_SPACING = 16;
+// (each leg starts at one), so this only fills in the gaps between them.
+// Wider than the very first version: fewer checkpoint rings means fewer
+// meshes in the scene and less per-frame work (see buildCheckpointMarkers/
+// updateRacing's spin animation), and reads as a clearer, less cluttered
+// sequence of gates to aim for.
+const CHECKPOINT_SPACING = 30;
+// radius (meters) used to round off each 90-degree corner of the route
+// into a quarter-circle arc instead of a sharp pivot -- both the visual
+// path and the invisible-wall corridor (which follows these same points)
+// curve smoothly through turns this way, instead of the corridor direction
+// abruptly flipping 90 degrees the instant a car crosses the corner point
+const CORNER_RADIUS = 9;
 
 // builds a valid closed rectilinear loop: alternates a horizontal then a
 // vertical hop of `stepSize` blocks, `steps` times, then a straight hop
@@ -52,6 +62,55 @@ function staircaseRoute(bx0, bz0, steps, stepSize) {
 function toWorldRoute(gridPts) {
   const { BLOCK, CITY_HALF } = opts_;
   return gridPts.map(([bx, bz]) => ({ x: bx * BLOCK - CITY_HALF, z: bz * BLOCK - CITY_HALF }));
+}
+
+// replaces one sharp vertex with a handful of points along a quarter-circle
+// arc of `radius`, tangent to both the incoming and outgoing leg -- trims
+// back along each leg by `radius` (never more than 40% of either leg's own
+// length, so a short leg still gets a real straight stretch) and sweeps the
+// shortest angle between the two trimmed points around their shared center
+function roundCorner(prev, vertex, next, radius) {
+  const inX = vertex.x - prev.x, inZ = vertex.z - prev.z;
+  const inLen = Math.hypot(inX, inZ) || 1;
+  const uInX = inX / inLen, uInZ = inZ / inLen;
+  const outX = next.x - vertex.x, outZ = next.z - vertex.z;
+  const outLen = Math.hypot(outX, outZ) || 1;
+  const uOutX = outX / outLen, uOutZ = outZ / outLen;
+  const r = Math.min(radius, inLen * 0.4, outLen * 0.4);
+  const ax = vertex.x - uInX * r, az = vertex.z - uInZ * r;
+  const bx = vertex.x + uOutX * r, bz = vertex.z + uOutZ * r;
+  const cx = vertex.x + uOutX * r - uInX * r, cz = vertex.z + uOutZ * r - uInZ * r;
+  const startAngle = Math.atan2(ax - cx, az - cz);
+  let endAngle = Math.atan2(bx - cx, bz - cz);
+  let diff = endAngle - startAngle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const steps = Math.max(2, Math.round(Math.abs(diff) / (Math.PI / 8)));
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const angle = startAngle + diff * (i / steps);
+    pts.push({ x: cx + Math.sin(angle) * r, z: cz + Math.cos(angle) * r });
+  }
+  return pts;
+}
+
+// rounds every corner of a closed loop except the very first vertex, so
+// both the visual route and the invisible-wall corridor (built from these
+// same points) curve through turns instead of pivoting on a sharp
+// 90-degree point. Vertex 0 stays sharp and exact -- it's the start/finish
+// line, and beginRace() positions the player, the bots and the start
+// banner from checkpoints[0]/[1] directly, which needs to be the real
+// corner, not an arc point offset and rotated away from it
+function roundRouteCorners(worldPts) {
+  const n = worldPts.length;
+  const rounded = [worldPts[0]];
+  for (let i = 1; i < n; i++) {
+    const prev = worldPts[i - 1];
+    const vertex = worldPts[i];
+    const next = worldPts[(i + 1) % n];
+    rounded.push(...roundCorner(prev, vertex, next, CORNER_RADIUS));
+  }
+  return rounded;
 }
 
 // fills in extra checkpoints every CHECKPOINT_SPACING meters along each leg
@@ -180,8 +239,10 @@ function makeCarParamsWithGrip(grip) {
 }
 
 function clearCheckpointMarkers() {
+  // every marker shares one geometry (see buildCheckpointMarkers) -- dispose
+  // it once rather than once per marker
+  if (checkpointMarkers.length) checkpointMarkers[0].geometry.dispose();
   for (const m of checkpointMarkers) {
-    m.geometry.dispose();
     m.material.dispose();
     scene_.remove(m);
   }
@@ -190,12 +251,17 @@ function clearCheckpointMarkers() {
 
 // a green ring standing upright at each checkpoint, like a gate to drive
 // through -- the player's current target glows brighter than the rest so
-// it always reads clearly which one to head for next
+// it always reads clearly which one to head for next. All markers share one
+// TorusGeometry (only the material differs per marker, for independent
+// highlight color/opacity) -- with a whole route's worth of checkpoints now
+// in the scene at once, allocating a separate geometry per ring was pure
+// waste since they're all the exact same shape.
 function buildCheckpointMarkers() {
   clearCheckpointMarkers();
+  const geo = new THREE_.TorusGeometry(3.2, 0.35, 8, 16);
   for (const cp of checkpoints) {
     const mat = new THREE_.MeshBasicMaterial({ color: '#3ddc5a', transparent: true, opacity: 0.22, side: THREE_.DoubleSide });
-    const mesh = new THREE_.Mesh(new THREE_.TorusGeometry(3.2, 0.35, 12, 24), mat);
+    const mesh = new THREE_.Mesh(geo, mat);
     mesh.position.set(cp.x, 1.6, cp.z);
     scene_.add(mesh);
     checkpointMarkers.push(mesh);
@@ -204,7 +270,7 @@ function buildCheckpointMarkers() {
 
 function beginRace(raceDef, playerCarState) {
   const gridRoute = raceDef.route();
-  checkpoints = densifyRoute(toWorldRoute(gridRoute));
+  checkpoints = densifyRoute(roundRouteCorners(toWorldRoute(gridRoute)));
   currentRace = raceDef;
   placements = [];
   playerProgress = { cp: 0, laps: 0, finished: false };
@@ -465,7 +531,11 @@ export function updateRacing(dt, playerCarState) {
       checkpointMarkers[i].material.color.set(isCurrent ? '#7dffa0' : '#3ddc5a');
     }
   }
-  for (const m of checkpointMarkers) m.rotation.y += dt * 0.6; // slow spin reads clearly as "drive through me"
+  // only the current target ring spins -- with checkpoints now spanning a
+  // whole route, animating every single one every frame (most of them far
+  // behind or well ahead of the player) was pure wasted per-frame work
+  const targetMarker = checkpointMarkers[playerProgress.cp];
+  if (targetMarker) targetMarker.rotation.y += dt * 0.6;
 
   const justFinished = playerProgress.finished && placements.indexOf('player') === -1;
   if (justFinished) {
