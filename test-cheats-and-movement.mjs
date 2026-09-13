@@ -49,16 +49,10 @@ console.log('voucher code (CASH50K):', await applyCode(page, 'CASH50K'));
 // unknown code
 console.log('unknown code:', await applyCode(page, 'NOT-A-REAL-CODE'));
 
-// fly + invisible toggles
+// invisible toggle -- fly mode's own double-tap-jump mechanic has its own
+// dedicated test (test-fly-doubletap.mjs), not repeated here
 await page.evaluate(() => window.__forceMode('foot'));
-await page.evaluate(() => document.getElementById('admin-fly-toggle').click());
 await page.evaluate(() => document.getElementById('admin-invisible-toggle').click());
-await page.evaluate(() => window.__setKeys({ space: true }));
-const beforeFly = await page.evaluate(() => window.__debug().foot);
-await page.evaluate(() => window.__stepFrames(60));
-const afterFly = await page.evaluate(() => window.__debug().foot);
-console.log('fly test: y before', beforeFly.y, 'y after 60 frames holding space:', afterFly.y);
-await page.evaluate(() => window.__setKeys({ space: false }));
 
 const wantedAfterInvisible = await page.evaluate(() => { window.__testForceArrest ? null : null; return window.__debug().wanted; });
 console.log('wanted level with invisibility on (should be 0 regardless):', wantedAfterInvisible);

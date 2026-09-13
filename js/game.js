@@ -495,17 +495,28 @@ function updateFoot(dt) {
   foot.z += Math.cos(foot.yaw) * foot.speed * dt;
   resolveCircleVsBuildings(foot, 0.32);
 
-  if (flyEnabled) {
-    // cheat-code fly mode: no gravity, hold Space to climb / Shift to
-    // descend, hover in place otherwise -- WASD/joystick still moves
-    // horizontally exactly as on the ground, just airborne
-    foot.vy = keys.space ? 6 : keys.shift ? -6 : 0;
-    foot.y = Math.max(0, foot.y + foot.vy * dt);
-    foot.grounded = foot.y <= 0;
+  spaceSinceLastTap += dt;
+  if (isFlying) {
+    // cheat-code fly mode: no gravity, hold Space to climb / F to descend,
+    // hover in place otherwise -- WASD/joystick still moves horizontally
+    // exactly as on the ground, just airborne. Landing ends the flight.
+    foot.vy = keys.space ? 6 : keys.f ? -6 : 0;
+    foot.y += foot.vy * dt;
+    if (foot.y <= 0) { foot.y = 0; foot.vy = 0; foot.grounded = true; isFlying = false; }
   } else {
-    if (spaceEdge && foot.grounded) {
-      foot.vy = JUMP_V;
-      foot.grounded = false;
+    if (spaceEdge) {
+      if (foot.grounded) {
+        foot.vy = JUMP_V;
+        foot.grounded = false;
+        spaceSinceLastTap = 0;
+      } else if (spaceSinceLastTap < 0.65 && isAdminUnlocked()) {
+        // a second Space press while still airborne from the jump above
+        // (not a second press while standing still) lifts into fly mode
+        // instead of a second jump -- the classic "double-jump into
+        // flight" cheat, gated to worlds with the fly ability unlocked
+        isFlying = true;
+        foot.vy = 4;
+      }
     }
     foot.vy -= GRAVITY * dt;
     foot.y += foot.vy * dt;
@@ -899,11 +910,14 @@ document.getElementById('menu-settings').addEventListener('click', () => { close
 const cheatInput = document.getElementById('cheat-input');
 const cheatMsg = document.getElementById('cheat-msg');
 const adminControls = document.getElementById('admin-controls');
-const adminFlyBtn = document.getElementById('admin-fly-toggle');
 const adminInvisibleBtn = document.getElementById('admin-invisible-toggle');
 
-let flyEnabled = false;
 let invisibleEnabled = false;
+// fly mode (admin-unlocked worlds only) isn't a settings toggle -- it's
+// triggered by double-tapping Space on the ground (see updateFoot()),
+// same as a classic "double-jump into flight" cheat
+let isFlying = false;
+let spaceSinceLastTap = 999; // seconds since the last Space press; big = "no recent press"
 
 function refreshAdminControls() {
   adminControls.classList.toggle('hidden', !isAdminUnlocked());
@@ -929,11 +943,6 @@ function submitCheatCode() {
 document.getElementById('cheat-submit').addEventListener('click', submitCheatCode);
 cheatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitCheatCode(); });
 
-adminFlyBtn.addEventListener('click', () => {
-  flyEnabled = !flyEnabled;
-  adminFlyBtn.textContent = flyEnabled ? '🕊️ טיסה: דלוקה' : '🕊️ טיסה: כבויה';
-  if (!flyEnabled && mode === 'foot') foot.vy = 0;
-});
 adminInvisibleBtn.addEventListener('click', () => {
   invisibleEnabled = !invisibleEnabled;
   adminInvisibleBtn.textContent = invisibleEnabled ? '👻 היעלמות: דלוקה' : '👻 היעלמות: כבויה';
