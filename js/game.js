@@ -7,7 +7,8 @@ import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from '
 import { initAudio, playPunch, setMuted } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
-import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission } from './missions.js';
+import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
+import { getLevel, getXP, xpIntoLevel, xpPerLevel } from './xpSystem.js';
 import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
 import { buildCar, buildMoto, updateVehicle, CAR_PARAMS, MOTO_PARAMS } from './vehicleController.js';
@@ -16,7 +17,7 @@ import { initCameraRig, updateCameraRig, getCameraZoomDebug, __testSetZoom } fro
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
-import { initDealership, renderDealership, getActiveTierCostMultiplier } from './dealership.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor } from './dealership.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
@@ -78,6 +79,7 @@ const hudMode = document.getElementById('hud-mode');
 const hudClock = document.getElementById('hud-clock');
 const hudMsg = document.getElementById('hud-msg');
 const hudCash = document.getElementById('hud-cash');
+const hudLevel = document.getElementById('hud-level');
 const hudWanted = document.getElementById('hud-wanted');
 const wantedStars = Array.from(hudWanted.querySelectorAll('.star'));
 const missionHud = document.getElementById('mission-hud');
@@ -641,6 +643,7 @@ function updateWantedHud() {
 
 function updateMissionHud(missionInfo, playerState) {
   hudCash.textContent = '₪' + missionInfo.score;
+  hudLevel.textContent = 'Lv ' + getLevel();
   if (!missionInfo.waypoint) {
     missionHud.classList.add('hidden');
     return;
@@ -731,7 +734,10 @@ window.__testSetGpsRoute = (destX, destZ) => {
 };
 
 initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge, getCarTierMultiplier: getActiveTierCostMultiplier });
-initDealership(panelGarage, { carRig: car, carParams: CAR_PARAMS, spendCash });
+initDealership(panelGarage, { THREE, carRig: car, carParams: CAR_PARAMS, spendCash });
+document.querySelectorAll('#car-color-row .swatch').forEach((btn) => {
+  btn.addEventListener('click', () => setCarColor(btn.dataset.color));
+});
 
 initCharacterCustomizer(panelCustomizer, { shirtMat: character.shirtMat, pantsMat: character.pantsMat });
 
@@ -938,6 +944,9 @@ function stepSim(dt) {
 
     autosaveTimer -= dt;
     if (autosaveTimer <= 0) { autosaveTimer = 20; saveGameState(); }
+
+    const leveledUpTo = consumeLevelUp();
+    if (leveledUpTo) showMessage(`🆙 עלית לרמה ${leveledUpTo}!`);
 
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
     if (policeInfo.rammed) {
@@ -1255,6 +1264,12 @@ composer.render();
 window.__gameBooted = true;
 window.__renderer = renderer;
 window.__testAddCash = (amount) => { addCash(amount); return getScore(); };
+window.__testCarModelInfo = () => ({
+  hasRealModel: !!car.realModel,
+  groupChildCount: car.group.children.length,
+  proceduralVisible: car.proceduralMeshes.map((m) => m.visible),
+  realModelMeshNames: car.realModel ? (() => { const names = []; car.realModel.traverse((o) => { if (o.isMesh) names.push(o.name); }); return names; })() : null,
+});
 window.__lightCount = () => {
   let n = 0;
   scene.traverse((o) => { if (o.isLight) n++; });

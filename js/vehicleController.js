@@ -9,11 +9,29 @@ import { DRACOLoader } from '../vendor/loaders/DRACOLoader.js';
 export const CAR_PARAMS = { accel: 20, maxV: 32, brake: -32, steerBase: 0.5, steerSpeed: 0.6, turnDenom: 7, drag: 0.11, radius: 2.3 };
 export const MOTO_PARAMS = { accel: 26, maxV: 24, brake: -30, steerBase: 0.62, steerSpeed: 0.75, turnDenom: 5, drag: 0.14, radius: 1.1 };
 
-// Real car model (Khronos/three.js's public-domain Ferrari sample, Draco-
-// compressed), loaded exactly like characterRig.js loads the player model:
-// the procedural car below still builds first and stays the fallback if
-// this fails, and only gets hidden (not removed) once the real model is in.
-const CAR_MODEL_PATH = '../assets/models/ferrari.glb';
+// Real car models -- one per dealership tier, each a genuinely different
+// 3D model (not the same mesh recolored) sourced from the Khronos glTF
+// sample-asset library plus the Ferrari sample already in this project.
+// Loaded exactly like characterRig.js loads the player model: the
+// procedural car below still builds first and stays the fallback if a load
+// fails, and only gets hidden (not removed) once a real model is in.
+// Each model's own scale/rotation/ground-offset needs its own tuning since
+// they come from unrelated sources with unrelated authored conventions.
+// scale/yOffset are auto-computed per model (see loadCarModel) since these
+// five come from unrelated sources at unrelated authored scales -- only
+// yRotation (which way the model's front faces) can't be auto-detected.
+// excludeMeshNames drops non-car scenery baked into a sample file (e.g. the
+// ToyCar sample poses its car on a big cloth backdrop mesh named "Fabric" --
+// found by dumping each glTF's own JSON mesh list, not a guess) so it
+// doesn't get measured into the auto-scale or rendered on a moving car.
+export const CAR_MODELS = [
+  { tier: 1, path: '../assets/models/toycar.glb', yRotation: 0, excludeMeshNames: ['Fabric'] },
+  { tier: 2, path: '../assets/models/cesiummilktruck.glb', yRotation: 0 },
+  { tier: 3, path: '../assets/models/carconcept.glb', yRotation: Math.PI },
+  { tier: 4, path: '../assets/models/buggy.glb', yRotation: Math.PI / 2 },
+  { tier: 5, path: '../assets/models/ferrari.glb', yRotation: Math.PI },
+];
+const DEFAULT_CAR_MODEL = CAR_MODELS[0]; // tier 1 (starter) -- what a fresh save actually owns
 
 // loadModel: false skips the real-glTF fetch/Draco-decode entirely and just
 // keeps the procedural car -- used for AI race bots (7+ of them can spawn at
@@ -57,28 +75,78 @@ export function buildCar(THREE, scene, { loadModel = true } = {}) {
   const rig = {
     group, wheels: [wheels[2], wheels[3]], steerWheels: [wheels[0], wheels[1]], tailMat,
     proceduralMeshes: [body, cabin, ...wheels, headL, headR, tailL, tailR],
+    bodyMat, realModel: null, currentColor: null, loadGeneration: 0,
   };
-  if (loadModel) loadCarModel(THREE, rig);
+  // applyColor is the single source of truth for "what color is this car" --
+  // called right after building (procedural), again the instant a real
+  // model finishes loading, and again whenever the dealership switches
+  // tiers/colors, so the color reliably sticks regardless of which of those
+  // happens last (the bug this replaced: a color set before the async glTF
+  // finished loading was simply lost once the real model's own meshes
+  // replaced the procedural ones, because nothing ever reapplied it)
+  rig.applyColor = (color) => {
+    rig.currentColor = color;
+    bodyMat.color.set(color);
+    if (rig.realModel) {
+      rig.realModel.traverse((o) => {
+        if (o.isMesh && o.material && o.material.color && !/glass|window|tire|wheel|tyre/i.test(o.name)) {
+          o.material.color.set(color);
+        }
+      });
+    }
+  };
+  if (loadModel) loadCarModel(THREE, rig, DEFAULT_CAR_MODEL);
   return rig;
 }
 
-function loadCarModel(THREE, rig) {
+function loadCarModel(THREE, rig, modelConfig) {
+  // a load started by an earlier call (e.g. the default tier-1 model, still
+  // in flight on a slow connection) must not be allowed to clobber a tier
+  // switch that happened before it finished -- each call gets its own
+  // generation number, and a callback whose generation is no longer current
+  // by the time it fires (a newer load having since been kicked off) bails
+  // out instead of attaching its (now stale) result
+  const myGeneration = ++rig.loadGeneration;
   const draco = new DRACOLoader();
   draco.setDecoderPath('../vendor/libs/draco/gltf/');
   const loader = new GLTFLoader();
   loader.setDRACOLoader(draco);
   loader.load(
-    CAR_MODEL_PATH,
+    modelConfig.path,
     (gltf) => {
+      if (myGeneration !== rig.loadGeneration) return; // superseded by a later load
       for (const mesh of rig.proceduralMeshes) mesh.visible = false;
       const model = gltf.scene;
       // this glTF's authored front faces -Z, but the game's own forward
       // convention is +Z at yaw=0 (same mismatch fixed for the player model
       // in characterRig.js) -- without this, pressing forward visually
       // drives the car backward, nose-first away from the direction of travel
-      model.rotation.y = Math.PI;
+      model.rotation.y = modelConfig.yRotation;
+      // drop any non-car scenery mesh named in this model's own config
+      // (see CAR_MODELS above) before measuring, so it doesn't throw off
+      // auto-scaling or render attached to a moving car
+      if (modelConfig.excludeMeshNames?.length) {
+        const toRemove = [];
+        model.traverse((o) => { if (o.isMesh && modelConfig.excludeMeshNames.includes(o.name)) toRemove.push(o); });
+        for (const m of toRemove) m.parent.remove(m);
+      }
+      // auto-fit instead of a hand-guessed scale per model: these 5 models
+      // come from unrelated sources authored at wildly different scales (a
+      // "toy" sample vs. a milk truck vs. a hypercar), so measure each
+      // one's own bounding box and scale it to the same ~4.3m car length
+      // every time, then ground it (lowest point at y=0) and center it --
+      // the same technique landmarks.js uses to place its own glTF model
+      model.updateMatrixWorld(true);
+      const rawSize = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      const longestHorizontal = Math.max(rawSize.x, rawSize.z) || 1;
+      model.scale.setScalar((4.3 / longestHorizontal) * (modelConfig.scale || 1));
+      model.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      model.position.set(-center.x, -box.min.y + (modelConfig.yOffset || 0), -center.z);
       model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       rig.group.add(model);
+      rig.realModel = model;
 
       const fl = model.getObjectByName('wheel_fl');
       const fr = model.getObjectByName('wheel_fr');
@@ -87,20 +155,44 @@ function loadCarModel(THREE, rig) {
       if (fl && fr && rl && rr) {
         rig.steerWheels = [fl, fr];
         rig.wheels = [rl, rr];
+      } else {
+        // this model doesn't share the Ferrari's wheel-node naming, so
+        // there's nothing to steer/spin -- keep pointing at the (now
+        // hidden) procedural wheels rather than crashing on missing refs
+        rig.steerWheels = [rig.proceduralMeshes[2], rig.proceduralMeshes[3]];
+        rig.wheels = [rig.proceduralMeshes[2], rig.proceduralMeshes[3]];
       }
       const tailMesh = model.getObjectByName('lights_red');
       if (tailMesh) {
         tailMesh.material = tailMesh.material.clone(); // don't share a material two vehicles could tint independently
         rig.tailMat = tailMesh.material;
       }
-      console.info('[vehicleController] loaded real car model:', CAR_MODEL_PATH);
+      if (rig.currentColor) rig.applyColor(rig.currentColor);
+      console.info('[vehicleController] loaded real car model:', modelConfig.path);
     },
     undefined,
-    () => {
-      // expected default state if the file is ever moved/removed -- the
-      // procedural car (already visible) just stays as-is
+    (err) => {
+      // the procedural car (already visible) just stays as-is, but log it --
+      // a silently-swallowed load error here previously made it look like a
+      // hang with no way to tell "still loading" from "never going to load"
+      console.warn('[vehicleController] failed to load car model', modelConfig.path, err);
     }
   );
+}
+
+// swaps the real model for a different dealership tier's -- removes
+// whatever real model is currently attached (if any), re-shows the
+// procedural fallback as an immediate placeholder, and loads the new one
+export function swapCarModel(THREE, rig, modelConfig) {
+  if (rig.realModel) {
+    rig.group.remove(rig.realModel);
+    rig.realModel.traverse((o) => { if (o.isMesh) { o.geometry?.dispose(); o.material?.dispose(); } });
+    rig.realModel = null;
+  }
+  for (const mesh of rig.proceduralMeshes) mesh.visible = true;
+  rig.wheels = [rig.proceduralMeshes[2], rig.proceduralMeshes[3]];
+  rig.steerWheels = [rig.proceduralMeshes[0], rig.proceduralMeshes[1]];
+  loadCarModel(THREE, rig, modelConfig);
 }
 
 export function buildMoto(THREE, scene) {

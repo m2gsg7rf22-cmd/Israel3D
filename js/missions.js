@@ -1,4 +1,5 @@
 import { loadSave, saveState } from './saveSystem.js';
+import { addXP } from './xpSystem.js';
 
 let THREE_, scene_;
 const ramps = [];
@@ -72,9 +73,22 @@ function showSplash(text, duration = 2.2) {
   splashTimer = duration;
 }
 
+let lastLevelUp = null;
+
 export function addCash(amount) {
   score += amount;
   saveState({ cash: score });
+  const xpResult = addXP(Math.round(amount / 20));
+  if (xpResult.leveledUp) lastLevelUp = xpResult.level;
+}
+
+// one-shot: returns the new level if the last addCash() crossed a level
+// boundary, then clears it, so the caller can show a "level up" message
+// exactly once per level-up rather than every frame
+export function consumeLevelUp() {
+  const lvl = lastLevelUp;
+  lastLevelUp = null;
+  return lvl;
 }
 
 // used by the mod shop: returns false (and spends nothing) if the player

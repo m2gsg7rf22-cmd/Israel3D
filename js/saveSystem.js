@@ -26,6 +26,8 @@ const DEFAULTS = {
   activeVehicle: 'car',
   ownedCarTiers: [1],
   activeCarTier: 1,
+  carColor: null,
+  xp: 0,
   lastLocation: null,
   inPrison: false,
   activeMissionId: null,
