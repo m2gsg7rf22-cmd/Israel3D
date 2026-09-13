@@ -477,15 +477,13 @@ function updateFoot(dt) {
     // steer+throttle scheme (still used for vehicles, where it's correct)
     // gave on foot
     const camYaw = foot.yaw + getCameraYawOffset();
-    // the camera's actual screen-right direction at yaw camYaw is
-    // (-cos(camYaw), sin(camYaw)) in (x, z) -- NOT (cos, -sin), because
-    // Three.js's lookAt derives the camera's local axes from (eye - target),
-    // the reverse of the "forward" direction, which flips the cross product
-    // that gives the right vector. Using the naive (cos, -sin) pairing (an
-    // earlier version of this code did) made every left/right input move
-    // the character in the mirror-opposite screen direction.
-    const worldX = -Math.cos(camYaw) * right + Math.sin(camYaw) * forward;
-    const worldZ = Math.sin(camYaw) * right + Math.cos(camYaw) * forward;
+    // The camera's screen-right basis is (-cos(camYaw), sin(camYaw)) in (x, z).
+    // Keep this sign explicit: the naive (cos, -sin) basis mirrors horizontal
+    // joystick movement even though the raw touch X value is correct.
+    const screenRightX = -Math.cos(camYaw);
+    const screenRightZ = Math.sin(camYaw);
+    const worldX = screenRightX * right + Math.sin(camYaw) * forward;
+    const worldZ = screenRightZ * right + Math.cos(camYaw) * forward;
     const desiredYaw = Math.atan2(worldX, worldZ);
     const diff = ((desiredYaw - foot.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     const maxStep = FOOT_TURN_RATE * dt;
