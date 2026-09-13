@@ -184,9 +184,7 @@ export class Locomotion {
 
     const moveMag = Math.min(1, Math.hypot(input.moveX, input.moveY));
     const inputForward = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
-    // Fixed: Corrected the right vector calculation to match camera-relative coordinates
-    // The right vector should be perpendicular to forward, following the camera's coordinate system
-    const inputRight = new THREE.Vector3(-Math.cos(cameraYaw), 0, Math.sin(cameraYaw));
+    const inputRight = new THREE.Vector3(Math.cos(cameraYaw), 0, -Math.sin(cameraYaw));
     const moveDir = new THREE.Vector3()
       .addScaledVector(inputForward, input.moveY)
       .addScaledVector(inputRight, input.moveX);
