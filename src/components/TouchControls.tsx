@@ -24,7 +24,7 @@ function Joystick() {
       dy = (dy / dist) * JOYSTICK_RADIUS;
     }
     setKnob({ x: dx, y: dy });
-    input.setJoystick(dx / JOYSTICK_RADIUS, -dy / JOYSTICK_RADIUS);
+    input.setJoystick(dx / JOYSTICK_RADIUS, dy / JOYSTICK_RADIUS);
   };
 
   const onDown = (e: React.PointerEvent) => {
