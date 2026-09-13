@@ -1195,6 +1195,7 @@ function loop(ts) {
 // State transitions
 // ============================================================
 function startGame() {
+  if (running) return;
   initAudio();
   restoreSavedState();
   running = true;
@@ -1254,30 +1255,47 @@ window.addEventListener('keyup', (e) => setKey(e.code, e.key, false));
 // context menu on the canvas so a right-click doesn't pop that up instead
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => { if (e.button === 2) punchEdge = true; });
-window.addEventListener('blur', () => {
+function resetTransientInput() {
   keys.left = keys.right = keys.up = keys.down = keys.shift = keys.space = keys.f = keys.punch = false;
   resetJoy();
+}
+window.addEventListener('blur', resetTransientInput);
+window.addEventListener('pagehide', resetTransientInput);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') resetTransientInput();
 });
 
 function bindHold(el, fn) {
-  const on = (e) => { e.preventDefault(); fn(true); };
-  const off = (e) => { e.preventDefault(); fn(false); };
-  el.addEventListener('touchstart', on, { passive: false });
-  el.addEventListener('touchend', off, { passive: false });
-  el.addEventListener('touchcancel', off, { passive: false });
-  el.addEventListener('mousedown', on);
-  el.addEventListener('mouseup', off);
-  el.addEventListener('mouseleave', off);
+  let activePointerId = null;
+  const on = (e) => {
+    e.preventDefault();
+    activePointerId = e.pointerId ?? null;
+    if (e.pointerId !== undefined) el.setPointerCapture?.(e.pointerId);
+    fn(true);
+  };
+  const off = (e) => {
+    if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
+    e.preventDefault?.();
+    activePointerId = null;
+    fn(false);
+  };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointercancel', off);
+  window.addEventListener('pointerup', off);
+  window.addEventListener('pointercancel', off);
 }
 bindHold(document.getElementById('t-run'), (v) => keys.shift = v);
 
+const JOY_SIZE = 64;
 const JOY_RADIUS = 18;
 function updateJoyFromEvent(e) {
   const rect = joystickEl.getBoundingClientRect();
+  const scale = rect.width / JOY_SIZE || 1;
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
-  let dx = e.clientX - cx;
-  let dy = e.clientY - cy;
+  let dx = (e.clientX - cx) / scale;
+  let dy = (e.clientY - cy) / scale;
   const dist = Math.hypot(dx, dy);
   if (dist > JOY_RADIUS) { dx = (dx / dist) * JOY_RADIUS; dy = (dy / dist) * JOY_RADIUS; }
   joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
