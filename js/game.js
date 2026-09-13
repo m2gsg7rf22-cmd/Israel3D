@@ -22,7 +22,7 @@ import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
 import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionById, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
-import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute, getActiveRaceTheme } from './racing.js';
+import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute, getActiveRaceTheme, unstickPlayer } from './racing.js';
 import { initTraffic, spawnTraffic, updateTraffic } from './traffic.js';
 import { getSave, saveState, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
@@ -116,6 +116,7 @@ const raceLapEl = document.getElementById('race-lap');
 const raceProgressFill = document.getElementById('race-progress-fill');
 const racePositionEl = document.getElementById('race-position');
 const raceExitBtn = document.getElementById('race-exit');
+const raceUnstickBtn = document.getElementById('race-unstick');
 
 const screenWorlds = document.getElementById('screen-worlds');
 const worldListEl = document.getElementById('world-list');
@@ -918,6 +919,8 @@ raceExitBtn.addEventListener('click', () => {
   raceHud.classList.add('hidden');
 });
 
+raceUnstickBtn.addEventListener('click', () => { unstickPlayer(carState); });
+
 // ============================================================
 // Resize
 // ============================================================
@@ -1470,6 +1473,11 @@ window.__testRaceTheme = () => ({
   fogDensity: scene.fog.density,
   isRaceActive: isRaceActive(),
 });
+window.__testRaceTrack = () => {
+  const route = getMinimapRoute();
+  return { checkpointCount: route ? route.points.length : 0, currentCp: route ? route.currentCp : -1, car: { x: carState.x, z: carState.z } };
+};
+window.__testUnstick = () => { unstickPlayer(carState); return { x: carState.x, z: carState.z, speed: carState.speed }; };
 window.__brakeToStop = (which, maxIters = 200) => {
   const state = which === 'car' ? carState : motoState;
   mode = which; // ensure the vehicle is actually being simulated

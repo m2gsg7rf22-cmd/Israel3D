@@ -24,7 +24,15 @@ let playerProgress = { cp: 0, laps: 0, finished: false };
 let placements = [];
 let prevDayTime = null;
 
-const CHECKPOINT_RADIUS = 9;
+const CHECKPOINT_RADIUS = 7;
+// half-width of the invisible corridor walls on either side of the route
+// centerline, in meters -- close to the game's own STREET_W/2 (streets are
+// 10m wide) so the barrier reads as "stay on the road", not an arbitrary cage
+const TRACK_HALF_WIDTH = 5;
+// distance between successive dense checkpoints along each route leg, in
+// meters -- corner points from the coarse route are always kept exactly
+// (each leg starts at one), so this only fills in the gaps between them
+const CHECKPOINT_SPACING = 16;
 
 // builds a valid closed rectilinear loop: alternates a horizontal then a
 // vertical hop of `stepSize` blocks, `steps` times, then a straight hop
@@ -44,6 +52,25 @@ function staircaseRoute(bx0, bz0, steps, stepSize) {
 function toWorldRoute(gridPts) {
   const { BLOCK, CITY_HALF } = opts_;
   return gridPts.map(([bx, bz]) => ({ x: bx * BLOCK - CITY_HALF, z: bz * BLOCK - CITY_HALF }));
+}
+
+// fills in extra checkpoints every CHECKPOINT_SPACING meters along each leg
+// of a closed loop, so the player drives through a steady sequence of gates
+// (like a rally corridor) instead of only seeing one far-off ring per corner
+// -- every original corner point is preserved exactly (each leg starts on one)
+function densifyRoute(worldPts) {
+  const dense = [];
+  const n = worldPts.length;
+  for (let i = 0; i < n; i++) {
+    const a = worldPts[i], b = worldPts[(i + 1) % n];
+    const segLen = Math.hypot(b.x - a.x, b.z - a.z);
+    const steps = Math.max(1, Math.round(segLen / CHECKPOINT_SPACING));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      dense.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    }
+  }
+  return dense;
 }
 
 export const DIFFICULTIES = [
@@ -116,6 +143,7 @@ function spawnBots(count, startPt, dirPt, speedMul, aggro) {
     const state = {
       x: startPt.x + perpX * side * 2.2, z: startPt.z + perpZ * side * 2.2 - row * 4,
       y: 0, vy: 0, yaw: baseYaw, speed: 0, steer: 0, boosting: false, wallCooldown: 0,
+      __stuckTimer: 0, __wallContact: 0,
     };
     list.push({
       rig, state, cp: 0, laps: 0, finished: false,
@@ -176,10 +204,12 @@ function buildCheckpointMarkers() {
 
 function beginRace(raceDef, playerCarState) {
   const gridRoute = raceDef.route();
-  checkpoints = toWorldRoute(gridRoute);
+  checkpoints = densifyRoute(toWorldRoute(gridRoute));
   currentRace = raceDef;
   placements = [];
   playerProgress = { cp: 0, laps: 0, finished: false };
+  playerCarState.__stuckTimer = 0;
+  playerCarState.__wallContact = 0;
   buildCheckpointMarkers();
   if (checkpointMarkers[0]) { checkpointMarkers[0].material.opacity = 0.55; checkpointMarkers[0].material.color.set('#7dffa0'); }
 
@@ -304,6 +334,80 @@ function advanceProgress(entry, x, z) {
   }
 }
 
+// invisible walls: clamps `state` to within TRACK_HALF_WIDTH of the straight
+// line between the checkpoint the car just left and the one it's heading to,
+// so neither the player nor the bots can drive off the designated route --
+// decomposing into an along-track + across-track component (rather than a
+// signed-distance-and-push) sidesteps sign-convention bugs and works the
+// same regardless of which way the leg is oriented
+function resolveTrackBounds(state, cpIndex) {
+  const n = checkpoints.length;
+  const prev = checkpoints[(cpIndex - 1 + n) % n];
+  const target = checkpoints[cpIndex];
+  const dx = target.x - prev.x, dz = target.z - prev.z;
+  const segLen = Math.hypot(dx, dz) || 1;
+  const ux = dx / segLen, uz = dz / segLen;
+  const px = state.x - prev.x, pz = state.z - prev.z;
+  const along = px * ux + pz * uz;
+  let perpX = px - along * ux, perpZ = pz - along * uz;
+  const perpDist = Math.hypot(perpX, perpZ);
+  if (perpDist > TRACK_HALF_WIDTH) {
+    const scale = TRACK_HALF_WIDTH / perpDist;
+    perpX *= scale; perpZ *= scale;
+    state.x = prev.x + along * ux + perpX;
+    state.z = prev.z + along * uz + perpZ;
+    if (state.speed !== undefined) state.speed *= 0.6;
+    // "touching a wall" grace window, consumed by updateStuckRecovery below
+    // -- only a car that's both against a wall AND barely moving counts as
+    // stuck, so a deliberate stop mid-track never triggers an auto-nudge
+    state.__wallContact = 0.5;
+  }
+  return { ux, uz };
+}
+
+// auto-recovery for a car wedged against an invisible wall (or a building --
+// state.speed already reads near-zero either way): after half a second of
+// wall contact with almost no speed, nudge it back onto the corridor's own
+// centerline and give it a small forward push along the track direction, so
+// a crash never turns into a permanent dead stop
+function updateStuckRecovery(state, dt, trackDir) {
+  if (state.__wallContact > 0) state.__wallContact -= dt;
+  const touchingWall = (state.__wallContact || 0) > 0;
+  const barelyMoving = Math.abs(state.speed || 0) < 1.2;
+  state.__stuckTimer = (touchingWall && barelyMoving) ? (state.__stuckTimer || 0) + dt : 0;
+  if (state.__stuckTimer > 0.9) {
+    state.x -= trackDir.ux * 1.5;
+    state.z -= trackDir.uz * 1.5;
+    state.yaw = Math.atan2(trackDir.ux, trackDir.uz);
+    state.speed = 5;
+    state.vy = 0;
+    state.__stuckTimer = 0;
+    state.__wallContact = 0;
+  }
+}
+
+// manual "get me unstuck" assist -- puts the player back on the corridor
+// centerline a little behind their last passed checkpoint, facing the next
+// one, so a single tap always works even if the auto-recovery hasn't kicked
+// in yet (e.g. the player is still moving, just wedged at an odd angle)
+export function unstickPlayer(playerCarState) {
+  if (!raceActive) return false;
+  const n = checkpoints.length;
+  const prev = checkpoints[(playerProgress.cp - 1 + n) % n];
+  const target = checkpoints[playerProgress.cp];
+  const dx = target.x - prev.x, dz = target.z - prev.z;
+  const segLen = Math.hypot(dx, dz) || 1;
+  const ux = dx / segLen, uz = dz / segLen;
+  playerCarState.x = prev.x + ux * 2;
+  playerCarState.z = prev.z + uz * 2;
+  playerCarState.yaw = Math.atan2(ux, uz);
+  playerCarState.speed = 5;
+  playerCarState.vy = 0;
+  playerCarState.__stuckTimer = 0;
+  playerCarState.__wallContact = 0;
+  return true;
+}
+
 function totalRacers() { return bots.length + 1; }
 
 function computeRank(x, z) {
@@ -320,14 +424,19 @@ function computeRank(x, z) {
 }
 
 // called every frame while a race is active; playerCarState is the same
-// object game.js drives with the player's own input -- this function only
-// reads it (for progress) except at race start, where it's teleported
+// object game.js drives with the player's own input. Besides reading it for
+// progress, this also clamps it to the track corridor (resolveTrackBounds)
+// and can nudge it free if it's wedged against a wall (updateStuckRecovery)
+// -- both run on top of game.js's own physics step, the same way race start
+// teleports the player to the start line before this ever runs.
 export function updateRacing(dt, playerCarState) {
   if (!raceActive) return { active: false };
   const params = makeCarParamsWithGrip(currentRace.grip);
   for (const b of bots) {
     if (b.finished) continue;
     opts_.updateVehicle(b.state, dt, params, botCtx(b));
+    const botDir = resolveTrackBounds(b.state, b.cp);
+    updateStuckRecovery(b.state, dt, botDir);
     advanceProgress(b, b.state.x, b.state.z);
     b.rig.group.position.set(b.state.x, b.state.y, b.state.z);
     b.rig.group.rotation.y = b.state.yaw;
@@ -336,7 +445,11 @@ export function updateRacing(dt, playerCarState) {
   }
 
   const cpBefore = playerProgress.cp;
-  if (!playerProgress.finished) advanceProgress(playerProgress, playerCarState.x, playerCarState.z);
+  if (!playerProgress.finished) {
+    const playerDir = resolveTrackBounds(playerCarState, playerProgress.cp);
+    updateStuckRecovery(playerCarState, dt, playerDir);
+    advanceProgress(playerProgress, playerCarState.x, playerCarState.z);
+  }
   if (playerProgress.cp !== cpBefore) {
     for (let i = 0; i < checkpointMarkers.length; i++) {
       const isCurrent = i === playerProgress.cp;
