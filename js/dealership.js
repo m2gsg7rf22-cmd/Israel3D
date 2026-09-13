@@ -1,11 +1,11 @@
 // Car Dealership: 5 unlockable car tiers, each a genuinely different 3D
 // model (see vehicleController.js's CAR_MODELS) rather than one mesh
-// recolored -- ToyCar, CesiumMilkTruck, CarConcept and ClearCoatCarPaint
-// (Khronos glTF sample assets) for tiers 1-4, and the project's own Ferrari
-// sample as the tier-5 flagship. Body color is still applied per tier/
-// choice on top of whichever model is active, via the rig's own
-// applyColor() so it reliably survives the async model swap (see
-// vehicleController.js's comment on why that used to silently fail).
+// recolored -- ToyCar, CesiumMilkTruck, CarConcept and Buggy (Khronos glTF
+// sample assets) for tiers 1-4, and the project's own Ferrari sample as the
+// tier-5 flagship. Body color is still applied per tier/choice on top of
+// whichever model is active, via the rig's own applyColor() so it reliably
+// survives the async model swap (see vehicleController.js's comment on why
+// that used to silently fail).
 import { getSave, saveState } from './saveSystem.js';
 import { setCarBase } from './modShop.js';
 import { swapCarModel, CAR_MODELS } from './vehicleController.js';

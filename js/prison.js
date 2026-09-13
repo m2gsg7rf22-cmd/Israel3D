@@ -68,8 +68,13 @@ function buildTower(THREE, x, z) {
 
 function buildGuard(THREE, x, z) {
   const group = new THREE.Group();
-  const uniform = new THREE.MeshStandardMaterial({ color: '#3a2f1c', roughness: 0.85 });
-  const skin = new THREE.MeshStandardMaterial({ color: '#c68863', roughness: 0.8 });
+  // the whole point of this mission mechanic is spotting/avoiding the
+  // guard -- an emissive rim + a small always-on light keep him readable
+  // at night even outside the sweeping tower spotlights, same idea as an
+  // enemy silhouette light in any stealth game rather than a strictly
+  // "realistic" light source
+  const uniform = new THREE.MeshStandardMaterial({ color: '#3a2f1c', roughness: 0.7, emissive: '#4a3a20', emissiveIntensity: 0.35 });
+  const skin = new THREE.MeshStandardMaterial({ color: '#c68863', roughness: 0.7, emissive: '#c68863', emissiveIntensity: 0.25 });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.24), uniform);
   torso.position.y = 1.24;
   torso.castShadow = true;
@@ -81,10 +86,13 @@ function buildGuard(THREE, x, z) {
   cap.position.y = 1.74;
   group.add(cap);
   // a visible "eye" wedge on the front so the guard's facing direction reads clearly
-  const visor = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 4), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffd23f', emissiveIntensity: 0.6 }));
+  const visor = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 4), new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffd23f', emissiveIntensity: 1.4 }));
   visor.rotation.x = Math.PI / 2;
   visor.position.set(0, 1.62, 0.18);
   group.add(visor);
+  const guardLight = new THREE.PointLight('#fff2c0', 1.6, 6);
+  guardLight.position.set(0, 1.6, 0);
+  group.add(guardLight);
   group.position.set(x, 0, z);
   scene_.add(group);
   return { group, x, z, yaw: 0, pathIndex: 0 };

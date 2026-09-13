@@ -17,18 +17,24 @@ await page.waitForTimeout(150);
 let items = await page.evaluate(() => Array.from(document.querySelectorAll('.dealer-item')).map(i => ({
   name: i.querySelector('.dealer-name').textContent,
   btnText: i.querySelector('.dealer-btn')?.textContent,
+  locked: i.querySelector('.dealer-locked')?.textContent,
   active: !!i.querySelector('.world-active-badge'),
 })));
-console.log('dealership items (initial):', JSON.stringify(items));
+console.log('dealership items (initial, level 1 -- tiers 2-5 should show a level lock, no buy button):', JSON.stringify(items));
 
-// buying tier2 without cash should fail (no change)
-await page.evaluate(() => document.querySelectorAll('.dealer-btn')[0].click());
-items = await page.evaluate(() => Array.from(document.querySelectorAll('.dealer-item')).map(i => !!i.querySelector('.world-active-badge')));
-console.log('active flags after failed buy (tier1 should stay active):', JSON.stringify(items));
+// tier 2 requires level 5 and cash alone can't unlock it -- no .dealer-btn
+// exists for it yet, only the lock badge, so there is nothing to click
+const hasBuyBtnWhileLocked = await page.evaluate(() => !!document.querySelectorAll('.dealer-btn').length);
+console.log('any buyable tier while still level 1:', hasBuyBtnWhileLocked, '(expected false)');
 
-// give cash, buy tier 2
-await page.evaluate(() => window.__testAddCash(10000));
-await page.evaluate(() => document.getElementById('menu-garage').click()); // reopen to re-render with fresh score display, though buy uses live getScore already
+// level up past the tier-2 requirement (real XP path: addCash grants xp/20,
+// so 70000 cash -> 3500 xp -> level 5) and give plenty of cash, then buy
+await page.evaluate(() => window.__testAddCash(70000));
+await page.evaluate(() => document.getElementById('menu-garage').click()); // reopen to re-render with fresh level/score
+items = await page.evaluate(() => Array.from(document.querySelectorAll('.dealer-item')).map(i => ({
+  btnText: i.querySelector('.dealer-btn')?.textContent, locked: i.querySelector('.dealer-locked')?.textContent,
+})));
+console.log('items after leveling up:', JSON.stringify(items));
 await page.evaluate(() => document.querySelectorAll('.dealer-btn')[0].click());
 items = await page.evaluate(() => Array.from(document.querySelectorAll('.dealer-item')).map(i => ({ btnText: i.querySelector('.dealer-btn')?.textContent, active: !!i.querySelector('.world-active-badge') })));
 console.log('items after buying tier2:', JSON.stringify(items));

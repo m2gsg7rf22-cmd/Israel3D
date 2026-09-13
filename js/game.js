@@ -22,7 +22,7 @@ import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
 import { initLandmark, updateLandmark, getLandmarkAABB, LANDMARK_X, LANDMARK_Z } from './landmarks.js';
 import { initPrison, updatePrison, isSeenByGuard, pickRandomMission, getMissionById, getMissionTargetWorld, distanceToMissionTarget, TARGET_REACH_RADIUS, getPrisonEntryPoint, getPrisonWallAABBs, PRISON_X, PRISON_Z, isOutsideCompound } from './prison.js';
-import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute } from './racing.js';
+import { initRacing, getRaceList, startRace, startCustomRace, exitRace, isRaceActive, updateRacing, DIFFICULTIES, LENGTHS, getMinimapRoute, getActiveRaceTheme } from './racing.js';
 import { initTraffic, spawnTraffic, updateTraffic } from './traffic.js';
 import { getSave, saveState, listWorlds, createWorld, switchWorld, deleteWorld, getActiveWorldId } from './saveSystem.js';
 
@@ -142,6 +142,19 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 
+// plain sRGB-integer channel lerp between two '#rrggbb' strings -- deliberately
+// NOT done via THREE.Color.lerp(), which mixes in linear color space and keeps
+// a saturated sky blue visually dominant over a muted tint until the blend
+// factor is almost 1; this keeps per-race sky tinting intuitive and readable
+// at a moderate, honest blend factor
+function lerpSRGBHex(hexA, hexB, t) {
+  const a = parseInt(hexA.slice(1), 16), b = parseInt(hexB.slice(1), 16);
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  const r = Math.round(ar + (br - ar) * t), g = Math.round(ag + (bg - ag) * t), bl = Math.round(ab + (bb - ab) * t);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+}
+
 const scene = new THREE.Scene();
 const DAY_SKY = new THREE.Color('#5ec8f5');
 const NIGHT_SKY = new THREE.Color('#0b1526');
@@ -229,6 +242,7 @@ let inPrison = false;
 let lastArrestProgress = 0;
 let activeMission = null;
 let missionTargetMesh = null;
+let missionTargetLight = null;
 
 function showMissionTargetBeacon(x, z) {
   if (missionTargetMesh) scene.remove(missionTargetMesh);
@@ -237,9 +251,16 @@ function showMissionTargetBeacon(x, z) {
   missionTargetMesh = new THREE.Mesh(geo, mat);
   missionTargetMesh.position.set(x, 0.1, z);
   scene.add(missionTargetMesh);
+  // a real light (not just an emissive material) so the target is spottable
+  // from a distance in the dark cell block/yard at night, not just up close
+  if (missionTargetLight) scene.remove(missionTargetLight);
+  missionTargetLight = new THREE.PointLight('#ffd23f', 2.2, 14);
+  missionTargetLight.position.set(x, 2, z);
+  scene.add(missionTargetLight);
 }
 function hideMissionTargetBeacon() {
   if (missionTargetMesh) { scene.remove(missionTargetMesh); missionTargetMesh = null; }
+  if (missionTargetLight) { scene.remove(missionTargetLight); missionTargetLight = null; }
 }
 
 // called when police.js reports an arrest (5m ring held for 4s straight)
@@ -534,8 +555,17 @@ function updateDayNight(dt) {
   hemiLight.intensity = damp(hemiLight.intensity, 0.9 - n * 0.55, 3, dt);
 
   const skyColor = DAY_SKY.clone().lerp(NIGHT_SKY, n);
+  // per-race sky/fog theming (see racing.js's getActiveRaceTheme): blended
+  // on top of the normal day/night color rather than replacing it, so a
+  // themed race at night still looks like night, just tinted (see
+  // lerpSRGBHex() above for why this isn't a plain THREE.Color.lerp()).
+  const raceTheme = getActiveRaceTheme();
+  if (raceTheme?.fogTint) {
+    skyColor.set(lerpSRGBHex('#' + skyColor.getHexString(), raceTheme.fogTint, 0.72));
+  }
   scene.background.copy(skyColor);
   scene.fog.color.copy(skyColor);
+  scene.fog.density = 0.0016 * (raceTheme?.fogDensityMul ?? 1);
 
   for (const mat of shopSigns) mat.emissiveIntensity = n;
   for (const light of nightLights) light.intensity = n * light.__base;
@@ -1433,6 +1463,13 @@ window.__driveTo = (targetX, targetZ, within, maxIters = 400) => {
 };
 window.__setDayTime = (t) => { dayTime = t; for (let f = 0; f < 3; f++) stepSim(1 / 60); composer.render(); return window.__debug(); };
 window.__setCameraZoomTarget = (z) => { __testSetZoom(z); return window.__debug(); };
+window.__testRaceTheme = () => ({
+  theme: getActiveRaceTheme(),
+  bgHex: '#' + scene.background.getHexString(),
+  fogHex: '#' + scene.fog.color.getHexString(),
+  fogDensity: scene.fog.density,
+  isRaceActive: isRaceActive(),
+});
 window.__brakeToStop = (which, maxIters = 200) => {
   const state = which === 'car' ? carState : motoState;
   mode = which; // ensure the vehicle is actually being simulated

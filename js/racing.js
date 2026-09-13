@@ -18,6 +18,7 @@ let raceActive = false;
 let currentRace = null;
 let checkpoints = [];
 let checkpointMarkers = [];
+let startBanner = null;
 let bots = [];
 let playerProgress = { cp: 0, laps: 0, finished: false };
 let placements = [];
@@ -63,31 +64,31 @@ export const RACES = [
   {
     id: 'ayalon', name: 'ספרינט נתיבי איילון',
     description: 'מרוץ מהיר וקצר על כביש ישר עם מעט פניות חדות — מי שהכי מהיר מנצח.',
-    difficulty: 'קל', laps: 2, night: false, grip: 1,
+    difficulty: 'קל', laps: 2, night: false, grip: 1, fogTint: '#f2d98a', fogDensityMul: 0.6,
     route: () => staircaseRoute(1, 1, 1, 11),
   },
   {
     id: 'urban', name: 'סיבוב פרימה עירוני',
     description: 'מסלול מעוקל בין שדרות העיר והרחובות הצרים — דורש שליטה מדויקת בהיגוי ובבלמים.',
-    difficulty: 'רגיל', laps: 3, night: false, grip: 1,
+    difficulty: 'רגיל', laps: 3, night: false, grip: 1, fogTint: '#9fb0c2', fogDensityMul: 1,
     route: () => staircaseRoute(2, 2, 3, 2),
   },
   {
     id: 'hills', name: 'אתגר ההרים והסיבובים',
     description: 'מסלול ארוך ומפותל בשכונת הגבעות עם המון פניות — הבוטים אגרסיביים יותר, והכביש חלקלק יותר.',
-    difficulty: 'מתקדם', laps: 2, night: false, grip: 0.85,
+    difficulty: 'מתקדם', laps: 2, night: false, grip: 0.85, fogTint: '#8fae8a', fogDensityMul: 1.7,
     route: () => staircaseRoute(7, 7, 6, 1),
   },
   {
     id: 'industrial', name: 'מרוץ הסיבולת התעשייתי',
     description: 'מסלול ארוך במיוחד עם 3 סבבים מתישים — מרוץ התמדה, לא ספרינט.',
-    difficulty: 'פרו', laps: 3, night: false, grip: 1,
+    difficulty: 'פרו', laps: 3, night: false, grip: 1, fogTint: '#7a6a55', fogDensityMul: 1.9,
     route: () => staircaseRoute(1, 1, 2, 6),
   },
   {
     id: 'nightgp', name: 'גרנד פרי הלילה',
     description: 'מרוץ רב-שלבי בתנאי תאורה מאתגרים — קטעים מהירים לצד מקטעים טכניים בחשכה.',
-    difficulty: 'פרו', laps: 2, night: true, grip: 0.92,
+    difficulty: 'פרו', laps: 2, night: true, grip: 0.92, fogTint: '#2a1a4a', fogDensityMul: 1.15,
     route: () => staircaseRoute(1, 1, 4, 3),
   },
 ];
@@ -188,6 +189,25 @@ function beginRace(raceDef, playerCarState) {
   playerCarState.x = start.x; playerCarState.z = start.z; playerCarState.y = 0;
   playerCarState.yaw = yaw; playerCarState.speed = 0; playerCarState.vy = 0;
 
+  // a start/finish arch, colored by this race's own theme -- a visible,
+  // track-specific landmark rather than just another green checkpoint ring
+  if (startBanner) scene_.remove(startBanner);
+  startBanner = new THREE_.Group();
+  const bannerColor = raceDef.fogTint || '#ff5f5f';
+  const postMat = new THREE_.MeshStandardMaterial({ color: '#333' });
+  const bannerMat = new THREE_.MeshStandardMaterial({ color: bannerColor, emissive: bannerColor, emissiveIntensity: 0.8 });
+  for (const side of [-1, 1]) {
+    const post = new THREE_.Mesh(new THREE_.CylinderGeometry(0.25, 0.25, 7, 8), postMat);
+    post.position.set(side * 6, 3.5, 0);
+    startBanner.add(post);
+  }
+  const bar = new THREE_.Mesh(new THREE_.BoxGeometry(12.6, 1, 0.4), bannerMat);
+  bar.position.set(0, 6.7, 0);
+  startBanner.add(bar);
+  startBanner.position.set(start.x, 0, start.z);
+  startBanner.rotation.y = yaw;
+  scene_.add(startBanner);
+
   for (const b of bots) disposeBot(b.rig);
   // derive bot speed/aggressiveness from the race's own difficulty label, so
   // hand-picked races and the custom generator both funnel through the same
@@ -244,6 +264,11 @@ export function exitRace() {
   for (const b of bots) disposeBot(b.rig);
   bots = [];
   clearCheckpointMarkers();
+  if (startBanner) {
+    startBanner.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    scene_.remove(startBanner);
+    startBanner = null;
+  }
   raceActive = false;
   currentRace = null;
   if (prevDayTime !== null && opts_.setDayTime) opts_.setDayTime(prevDayTime);
@@ -258,6 +283,14 @@ export function getMinimapRoute() {
 }
 
 export function isRaceActive() { return raceActive; }
+
+// per-race sky/fog theming so each track reads visually different, on top
+// of the route/laps/difficulty differences -- e.g. a hazy green tint for
+// the "hills" race, a smoggy brown one for the industrial endurance race
+export function getActiveRaceTheme() {
+  if (!raceActive) return null;
+  return { fogTint: currentRace.fogTint, fogDensityMul: currentRace.fogDensityMul };
+}
 
 function advanceProgress(entry, x, z) {
   const target = checkpoints[entry.cp];
