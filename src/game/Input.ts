@@ -180,8 +180,8 @@ class InputManager {
   // --- Touch API (called by TouchControls.tsx) ---
 
   setJoystick(x: number, y: number) {
-    // Invert X axis to fix inverted joystick movement (left/right was reversed)
-    this.joystickMove.x = -x;
+    // Keep the joystick's screen-space X sign; Locomotion maps it to camera-relative RIGHT.
+    this.joystickMove.x = x;
     this.joystickMove.y = y;
     this.recomputeMove();
   }
