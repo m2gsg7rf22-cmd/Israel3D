@@ -17,6 +17,12 @@ export const WORLD_ADMIN_CODES = [
 ];
 
 export const GLOBAL_MONEY_CODE = 'MONEYGOD';
+// Additional global admin aliases. Each one unlocks the same admin controls
+// without changing the existing world-specific code behavior.
+export const EXTRA_ADMIN_CODES = [
+  'ADMIN-ORBIT', 'ADMIN-COMMAND', 'ADMIN-NOVA', 'ADMIN-TITAN', 'ADMIN-SPECTER', 'ADMIN-OVERDRIVE', 'ADMIN-APEX', 'ADMIN-LEGACY', 'ADMIN-PRIME', 'ADMIN-UNLOCK', 'ADMIN-SENTINEL', 'ADMIN-VOYAGER', 'ADMIN-QUANTUM', 'ADMIN-FALCON', 'ADMIN-EMBER', 'ADMIN-GLACIER', 'ADMIN-NEBULA', 'ADMIN-ATLAS', 'ADMIN-PHOENIX', 'ADMIN-OMNI'
+];
+
 
 // tier numbers match vehicleController.js's CAR_MODELS / dealership.js's CAR_TIERS
 export const CAR_CODES = {
@@ -47,6 +53,11 @@ export function applyCheatCode(raw, { addCash, ownCarTier } = {}) {
   if (code === GLOBAL_MONEY_CODE) {
     if (addCash) addCash(1000000);
     return { ok: true, message: '💰 קוד כסף גלובלי הופעל — מיליון ₪ נוספו!' };
+  }
+
+  if (EXTRA_ADMIN_CODES.includes(code)) {
+    saveState({ adminUnlocked: true });
+    return { ok: true, message: '👑 קוד אדמין הופעל — פקודות האדמין זמינות עכשיו!' };
   }
 
   const slot = WORLD_ADMIN_CODES.indexOf(code);
