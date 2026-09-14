@@ -2,7 +2,7 @@
 // three.js CDN -- there isn't one, everything is vendored locally) so the
 // installed PWA opens and plays without a network round trip on repeat
 // launches. Bump CACHE_NAME whenever shipped files change meaningfully.
-const CACHE_NAME = 'meridian-bay-v9';
+const CACHE_NAME = 'meridian-bay-v10';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -33,6 +33,30 @@ const CORE_ASSETS = [
   './js/vehicleController.js',
   './js/xpSystem.js',
   './vendor/three.module.js',
+  './vendor/postprocessing/EffectComposer.js',
+  './vendor/postprocessing/Pass.js',
+  './vendor/postprocessing/RenderPass.js',
+  './vendor/postprocessing/ShaderPass.js',
+  './vendor/postprocessing/MaskPass.js',
+  './vendor/postprocessing/UnrealBloomPass.js',
+  './vendor/postprocessing/OutputPass.js',
+  './vendor/shaders/CopyShader.js',
+  './vendor/shaders/LuminosityHighPassShader.js',
+  './vendor/shaders/OutputShader.js',
+  './vendor/loaders/GLTFLoader.js',
+  './vendor/loaders/DRACOLoader.js',
+  './vendor/libs/draco/gltf/draco_decoder.js',
+  './vendor/libs/draco/gltf/draco_wasm_wrapper.js',
+  './vendor/libs/draco/gltf/draco_decoder.wasm',
+  './assets/models/buggy.glb',
+  './assets/models/carconcept.glb',
+  './assets/models/cesiummilktruck.glb',
+  './assets/models/ferrari.glb',
+  './assets/models/littlest-tokyo.glb',
+  './assets/models/player.glb',
+  './assets/models/toycar.glb',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -60,7 +84,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         }
         return res;
-      }).catch(() => cached);
+      }).catch(() => new Response('', { status: 504, statusText: 'Offline' }));
     })
   );
 });
