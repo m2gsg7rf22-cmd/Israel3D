@@ -409,7 +409,7 @@ let fEdge = false, spaceEdge = false, punchEdge = false, pendingWeapon = null;
 const joy = { x: 0, y: 0, active: false, pointerId: null };
 
 function steerThrottle() {
-  if (joy.active) return { steer: clamp(-joy.x, -1, 1), throttle: clamp(-joy.y, -1, 1) };
+  if (joy.active) return { steer: clamp(joy.x, -1, 1), throttle: clamp(-joy.y, -1, 1) };
   return { steer: (keys.right ? 1 : 0) - (keys.left ? 1 : 0), throttle: keys.up ? 1 : keys.down ? -1 : 0 };
 }
 
