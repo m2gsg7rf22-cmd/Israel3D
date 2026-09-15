@@ -7,6 +7,7 @@ import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from '
 import { initAudio, playPunch, setMuted, setRadioStation, getStationNames } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty, setPlayerInvisible } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
+import { initSkidMarks, updateSkidMarks } from './skidMarks.js';
 import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
 import { getLevel, getXP, xpIntoLevel, xpPerLevel } from './xpSystem.js';
 import { initCityArchitecture } from './cityArchitecture.js';
@@ -392,6 +393,7 @@ const heli = buildHelicopterVehicle(THREE, scene);
 spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED, count: 48 });
 initPolice(scene, THREE, resolveCircleVsBuildings);
 initProps(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED });
+initSkidMarks(THREE, scene);
 initMissions(scene, THREE);
 
 // ============================================================
@@ -691,11 +693,16 @@ function updateDayNight(dt) {
 function syncMeshes(dt) {
   car.group.position.set(carState.x, carState.y, carState.z);
   car.group.rotation.y = carState.yaw;
+  // subtle body lean -- same validated sign convention as the motorcycle's
+  // own lean just below (steer>0 -> rotation.z<0), scaled down for a
+  // 4-wheeled body and amplified while drifting (handbrake held)
+  const carLeanMax = carState.drifting ? 0.16 : 0.045;
+  car.group.rotation.z = damp(car.group.rotation.z, -(carState.steer || 0) * Math.min(Math.abs(carState.speed) / 25, 1) * carLeanMax, 8, dt);
   const carSteerAngle = clamp((carState.steer || 0) * 0.32, -0.32, 0.32);
   for (const w of car.steerWheels) w.rotation.y = carSteerAngle;
   const wheelSpin = carState.speed * dt / 0.35;
   for (const w of [...car.wheels, ...car.steerWheels]) w.rotation.x += wheelSpin;
-  car.tailMat.emissiveIntensity = keys.down ? 3 : 0.6;
+  car.tailMat.emissiveIntensity = (keys.down || carState.drifting) ? 3 : 0.6;
 
   moto.group.position.set(motoState.x, motoState.y, motoState.z);
   moto.group.rotation.y = motoState.yaw;
@@ -780,6 +787,7 @@ function updateHud(dt) {
   const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
   hudSpeed.textContent = state ? Math.round(Math.abs(state.speed) * 3.6) : Math.round(Math.abs(foot.speed) * 3.6);
   hudMode.textContent = MODE_LABEL[mode];
+  syncWeaponButtonIcon();
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) hudMsg.classList.remove('visible'); }
 
   boostHud.classList.toggle('hidden', !state);
@@ -1152,6 +1160,7 @@ function stepSim(dt) {
       showMessage('אזרח תוקף אותך בחזרה!');
     }
     updateProps(dt);
+    updateSkidMarks(dt);
     updateLampPoles(dt);
     updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
     updateLandmark(dt);
@@ -1403,12 +1412,28 @@ document.getElementById('t-action').addEventListener('touchstart', (e) => { e.pr
 document.getElementById('t-action').addEventListener('click', () => { fEdge = true; });
 document.getElementById('t-jump').addEventListener('touchstart', (e) => { e.preventDefault(); if (!keys.space) spaceEdge = true; }, { passive: false });
 document.getElementById('t-jump').addEventListener('click', () => { spaceEdge = true; });
-// these two are always fist/knife respectively regardless of the settings
-// toggle, per spec ("two fixed buttons -- a punch button and a knife button")
+// same physical button doubles as the vehicle handbrake -- on foot it's a
+// single tap (spaceEdge, above); in a car/moto, updateVehicle reads
+// keys.space continuously as "handbrake held", so it also needs the
+// press-and-hold tracking bindHold gives t-run for sprint/boost
+bindHold(document.getElementById('t-jump'), (v) => keys.space = v);
+// t-punch is always bare-handed (free, no wanted-level bump in daylight).
+// t-weapon attacks with whatever's currently equipped from the weapon shop
+// -- its icon/label is kept in sync with the active weapon in updateHud()
+// below, instead of being hard-coded to a knife regardless of what's owned.
 document.getElementById('t-punch').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; pendingWeapon = 'fist'; }, { passive: false });
 document.getElementById('t-punch').addEventListener('click', () => { punchEdge = true; pendingWeapon = 'fist'; });
-document.getElementById('t-knife').addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; pendingWeapon = 'knife'; }, { passive: false });
-document.getElementById('t-knife').addEventListener('click', () => { punchEdge = true; pendingWeapon = 'knife'; });
+const tWeaponBtn = document.getElementById('t-knife');
+tWeaponBtn.addEventListener('touchstart', (e) => { e.preventDefault(); punchEdge = true; pendingWeapon = 'equipped'; }, { passive: false });
+tWeaponBtn.addEventListener('click', () => { punchEdge = true; pendingWeapon = 'equipped'; });
+let lastWeaponIconKey = null;
+function syncWeaponButtonIcon() {
+  const w = getActiveWeapon();
+  if (w.key === lastWeaponIconKey) return;
+  lastWeaponIconKey = w.key;
+  tWeaponBtn.textContent = w.icon;
+  tWeaponBtn.title = w.label;
+}
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
   touchControls.classList.remove('hidden');
@@ -1504,8 +1529,8 @@ window.__frameCount = 0;
 window.__debug = () => ({
   frames: window.__frameCount,
   mode, foot: { x: foot.x, z: foot.z, y: foot.y, yaw: foot.yaw, speed: foot.speed },
-  car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting },
-  moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting },
+  car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting, drifting: carState.drifting, slipAngle: carState.slipAngle },
+  moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting, drifting: motoState.drifting, slipAngle: motoState.slipAngle },
   plane: { x: planeState.x, z: planeState.z, yaw: planeState.yaw, speed: planeState.speed, y: planeState.y, vy: planeState.vy },
   heli: { x: heliState.x, z: heliState.z, yaw: heliState.yaw, speed: heliState.speed, y: heliState.y, vy: heliState.vy },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),

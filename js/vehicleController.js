@@ -3,6 +3,7 @@ import { increaseWanted } from './police.js';
 import { vehicleHitProps, scrapeSparks, spawnSmoke } from './props.js';
 import { checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd, addCash } from './missions.js';
 import { playImpact } from './audio.js';
+import { spawnSkidMark } from './skidMarks.js';
 import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { DRACOLoader } from '../vendor/loaders/DRACOLoader.js';
 
@@ -328,11 +329,6 @@ export function updateVehicle(state, dt, params, ctx) {
   const boostRegenRate = 10 + boostLevel * 4;
   state.boostMeter = clamp(state.boostMeter + (canBoost ? -boostDrainRate : boostRegenRate) * dt, 0, 100);
 
-  if (keys.space && throttle > 0 && Math.abs(state.speed) < 3) {
-    const rx = state.x - Math.sin(state.yaw) * 1.4, rz = state.z - Math.cos(state.yaw) * 1.4;
-    spawnSmoke(rx, 0.15, rz, 1);
-  }
-
   let accel = 0;
   if (throttle > 0) accel = params.accel * boostMul * (1 - Math.max(state.speed, 0) / maxV) * throttle;
   else if (throttle < 0) accel = (state.speed > 1 ? params.brake : -10 * (1 + state.speed / 14)) * -throttle;
@@ -341,11 +337,51 @@ export function updateVehicle(state, dt, params, ctx) {
   if (throttle === 0) state.speed *= (1 - 0.18 * dt);
   state.speed = clamp(state.speed, -params.maxV * 0.4, maxV);
 
+  // Handbrake / drift: held while moving at real speed, it breaks rear
+  // grip. Previously this model had zero lateral slip at all -- the car's
+  // travel direction was always forced to exactly match its own body yaw
+  // every frame, so no drift was physically possible no matter how hard
+  // you turned. Now the body (state.yaw, what's rendered) can rotate
+  // faster than the actual direction of travel (state.velYaw, what
+  // position updates use), which is what a drift *is*: the nose swings
+  // around before the car's momentum catches up.
+  if (state.velYaw === undefined) state.velYaw = state.yaw;
+  const handbrake = !!keys.space && Math.abs(state.speed) > 3;
+  const hardBraking = throttle < 0 && Math.abs(state.speed) > 10;
+  state.drifting = handbrake;
   const speedFrac = Math.min(Math.abs(state.speed) / params.turnDenom, 1);
-  state.yaw += steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed) * speedFrac * Math.sign(state.speed || 1) * dt;
-  state.x += Math.sin(state.yaw) * state.speed * dt;
-  state.z += Math.cos(state.yaw) * state.speed * dt;
+  const yawRate = steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed)
+    * speedFrac * Math.sign(state.speed || 1) * (handbrake ? 2.1 : 1);
+  state.yaw += yawRate * dt;
+  if (handbrake) {
+    state.speed *= (1 - 0.9 * dt); // rear grip loss scrubs speed fast, like real friction
+    state.velYaw = dampAngle(state.velYaw, state.yaw, 2.2, dt); // travel direction lags well behind the body
+  } else {
+    state.velYaw = state.yaw; // full grip: travel direction snaps to facing, no slip
+  }
+  state.slipAngle = ((state.yaw - state.velYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  state.x += Math.sin(state.velYaw) * state.speed * dt;
+  state.z += Math.cos(state.velYaw) * state.speed * dt;
   state.steer = steer;
+
+  // tire smoke + skid marks: standstill burnout, drifting, or hard braking.
+  // Throttled to a fixed rate (not every frame) since both effects draw
+  // from small shared pools (props.js's particle pool, skidMarks.js's mark
+  // pool) that multiple simultaneous cars/bikes all share.
+  const burnoutAtStandstill = keys.space && throttle > 0 && Math.abs(state.speed) < 3;
+  if (state.fxTimer === undefined) state.fxTimer = 0;
+  state.fxTimer -= dt;
+  if ((handbrake || hardBraking || burnoutAtStandstill) && state.fxTimer <= 0) {
+    state.fxTimer = 0.05;
+    const rx = state.x - Math.sin(state.yaw) * 1.4, rz = state.z - Math.cos(state.yaw) * 1.4;
+    spawnSmoke(rx, 0.15, rz, handbrake ? 2 : 1);
+    if (handbrake || hardBraking) {
+      const sideOffset = 0.75;
+      const sx = Math.cos(state.yaw) * sideOffset, sz = -Math.sin(state.yaw) * sideOffset;
+      spawnSkidMark(rx + sx, rz + sz, state.yaw, handbrake ? 1 : 0.5);
+      spawnSkidMark(rx - sx, rz - sz, state.yaw, handbrake ? 1 : 0.5);
+    }
+  }
 
   const pedsHit = vehicleHitPedestrians(state.x, state.z, state.speed);
   if (pedsHit) {
@@ -384,3 +420,7 @@ export function updateVehicle(state, dt, params, ctx) {
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function dampAngle(a, b, lambda, dt) {
+  const diff = ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  return a + diff * (1 - Math.exp(-lambda * dt));
+}

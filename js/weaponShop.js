@@ -4,10 +4,10 @@
 import { getSave, saveState } from './saveSystem.js';
 
 export const WEAPONS = [
-  { key: 'fist', label: 'אגרופים', price: 0, range: 1.5, wantedBonus: 1 },
-  { key: 'bat', label: 'אלת בייסבול', price: 800, range: 1.9, wantedBonus: 1 },
-  { key: 'knife', label: 'סכין', price: 2500, range: 2.1, wantedBonus: 2 },
-  { key: 'taser', label: 'טייזר', price: 6000, range: 2.4, wantedBonus: 2 },
+  { key: 'fist', label: 'אגרופים', icon: '👊', price: 0, range: 1.5, wantedBonus: 1 },
+  { key: 'bat', label: 'אלת בייסבול', icon: '🏏', price: 800, range: 1.9, wantedBonus: 1 },
+  { key: 'knife', label: 'סכין', icon: '🔪', price: 2500, range: 2.1, wantedBonus: 2 },
+  { key: 'taser', label: 'טייזר', icon: '⚡', price: 6000, range: 2.4, wantedBonus: 2 },
 ];
 
 let panelEl_, spendCash_;
