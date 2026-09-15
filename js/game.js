@@ -205,12 +205,24 @@ const PRISON_SKIP_BLOCKS = [];
   const pbx = blockIndexOf(PRISON_X), pbz = blockIndexOf(PRISON_Z);
   for (let bx = pbx - 1; bx <= pbx + 1; bx++) for (let bz = pbz - 1; bz <= pbz + 1; bz++) PRISON_SKIP_BLOCKS.push({ bx, bz });
 }
+// no in-world airport ever existed before the air-vehicle system, so the
+// planes/heli just parked on an open patch near a map corner -- this
+// reserves a real tarmac zone there (see buildAirfield() below) instead of
+// leaving them sitting on bare street ground with buildings free to spawn
+// right next to them
+const AIRFIELD_X = CITY_HALF - 30, AIRFIELD_Z = -CITY_HALF + 30;
+const AIRPORT_SKIP_BLOCKS = [];
+{
+  const abx = blockIndexOf(AIRFIELD_X), abz = blockIndexOf(AIRFIELD_Z);
+  for (let bx = abx - 1; bx <= abx + 1; bx++) for (let bz = abz - 1; bz <= abz + 1; bz++) AIRPORT_SKIP_BLOCKS.push({ bx, bz });
+}
 const cityOpts = {
   grid: GRID, block: BLOCK, streetW: STREET_W, lot: LOT, cityHalf: CITY_HALF, citySeed: CITY_SEED,
   skipBlocks: [
     { bx: 4, bz: 4 }, // central park -- natureEngine.buildCentralPark uses this same fixed block index
     { bx: blockIndexOf(LANDMARK_X), bz: blockIndexOf(LANDMARK_Z) },
     ...PRISON_SKIP_BLOCKS,
+    ...AIRPORT_SKIP_BLOCKS,
   ],
 };
 const cityArch = initCityArchitecture(scene, THREE, cityOpts);
@@ -380,12 +392,49 @@ initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HA
 const car = buildCar(THREE, scene);
 const moto = buildMoto(THREE, scene);
 const character = buildCharacter(THREE, scene);
-// no in-world airport exists, so the two air vehicles just live parked at a
-// fixed open patch near a map corner (clear of buildings) -- walk up and
-// press F to fly, same as any car/moto, once bought at the dealership
-const AIRFIELD_X = CITY_HALF - 30, AIRFIELD_Z = -CITY_HALF + 30;
 const plane = buildAirplane(THREE, scene);
 const heli = buildHelicopterVehicle(THREE, scene);
+buildAirfield(THREE, scene, AIRFIELD_X, AIRFIELD_Z);
+
+// A simple procedural airfield: a dark tarmac apron with painted taxi
+// lines plus a small control tower, replacing the plain street ground the
+// planes/heli used to just sit on. The 3x3 block reservation around it
+// (AIRPORT_SKIP_BLOCKS above) keeps regular city buildings from spawning
+// on top of it.
+function buildAirfield(THREE, scene, x, z) {
+  const apronSize = 46;
+  const tarmac = new THREE.Mesh(
+    new THREE.PlaneGeometry(apronSize, apronSize),
+    new THREE.MeshStandardMaterial({ color: '#2b2d30', roughness: 0.95 })
+  );
+  tarmac.rotation.x = -Math.PI / 2;
+  tarmac.position.set(x, 0.01, z);
+  tarmac.receiveShadow = true;
+  scene.add(tarmac);
+
+  const stripeMat = new THREE.MeshBasicMaterial({ color: '#f4d35e' });
+  const stripeGeo = new THREE.PlaneGeometry(0.4, apronSize * 0.8);
+  stripeGeo.rotateX(-Math.PI / 2);
+  const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+  stripe.position.set(x, 0.02, z);
+  scene.add(stripe);
+
+  const towerMat = new THREE.MeshStandardMaterial({ color: '#c7cdd6', roughness: 0.6 });
+  const towerBase = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 9, 10), towerMat);
+  towerBase.position.set(x - apronSize / 2 + 3, 4.5, z - apronSize / 2 + 3);
+  towerBase.castShadow = true;
+  scene.add(towerBase);
+  const towerCab = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.6, 2.6, 2.4, 10),
+    new THREE.MeshStandardMaterial({ color: '#2e6b8f', roughness: 0.3, metalness: 0.4 })
+  );
+  towerCab.position.set(towerBase.position.x, 10.2, towerBase.position.z);
+  towerCab.castShadow = true;
+  scene.add(towerCab);
+  const beacon = new THREE.PointLight('#ff3030', 1.6, 14);
+  beacon.position.set(towerBase.position.x, 11.6, towerBase.position.z);
+  scene.add(beacon);
+}
 
 // ============================================================
 // Pedestrians

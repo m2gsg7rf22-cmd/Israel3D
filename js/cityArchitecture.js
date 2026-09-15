@@ -1,10 +1,20 @@
 import { spawnDebrisBurst } from './props.js';
 
+// 7 districts laid out as a real city would be (see districtOf below): a
+// tall downtown core at the center, a historic ring around it, specialized
+// edges (harbor on the south coast, industrial to the west, hillside
+// suburbs to the north, a commercial strip to the east), and residential
+// filling the space between the core and the edges -- instead of the
+// previous flat 2x2-quadrant split, which only ever produced 4 visually
+// distinct areas regardless of how big the grid was.
 export const DISTRICTS = {
-  downtown: { name: 'Downtown Core', lotColor: '#8a8f96', bodyColor: '#4b6785', shop: 0.25, floors: [8, 18], hillside: false },
+  downtown: { name: 'Downtown Core', lotColor: '#8a8f96', bodyColor: '#4b6785', shop: 0.25, floors: [10, 42], hillside: false },
   harbor: { name: 'Harbor Row', lotColor: '#7d9098', bodyColor: '#3f7d82', shop: 0.55, floors: [2, 5], hillside: false },
   oldquarter: { name: 'Old Quarter', lotColor: '#9c8a72', bodyColor: '#8a5a44', shop: 0.6, floors: [3, 6], hillside: false },
   hillside: { name: 'Hillside Heights', lotColor: '#4f8f52', bodyColor: '#c9b896', shop: 0.05, floors: [1, 2], hillside: true },
+  residential: { name: 'Meridian Residential', lotColor: '#8f8478', bodyColor: '#a9765f', shop: 0.15, floors: [3, 8], hillside: false },
+  industrial: { name: 'Dockside Industrial', lotColor: '#5a5a52', bodyColor: '#6b6b62', shop: 0.05, floors: [1, 3], hillside: false },
+  commercial: { name: 'Commerce Strip', lotColor: '#7d8a96', bodyColor: '#3f6b8a', shop: 0.4, floors: [5, 12], hillside: false },
 };
 
 // height-scale variety requested alongside floor-count variety, applied on
@@ -43,11 +53,15 @@ function mulberry32(seed) {
   };
 }
 function districtOf(bx, bz, grid) {
-  const half = grid / 2;
-  if (bx < half && bz < half) return DISTRICTS.downtown;
-  if (bx >= half && bz < half) return DISTRICTS.harbor;
-  if (bx < half && bz >= half) return DISTRICTS.oldquarter;
-  return DISTRICTS.hillside;
+  const c = grid / 2;
+  const ringDist = Math.max(Math.abs(bx - c), Math.abs(bz - c));
+  if (ringDist <= 1) return DISTRICTS.downtown;
+  if (ringDist <= 2.5) return DISTRICTS.oldquarter;
+  if (bz >= grid - 2) return DISTRICTS.harbor;      // south coast
+  if (bx <= 1) return DISTRICTS.industrial;         // west edge
+  if (bz <= 1) return DISTRICTS.hillside;           // north suburbs
+  if (bx >= grid - 2) return DISTRICTS.commercial;  // east strip
+  return DISTRICTS.residential;                     // everything between the core and the edges
 }
 
 function buildCityTexture(THREE, opts) {
