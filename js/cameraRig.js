@@ -115,16 +115,27 @@ export function updateCameraRig(dt, ctx) {
   const horiz = dist * Math.cos(camPitchOffset);
   const vert = dist * Math.sin(camPitchOffset);
 
-  const desiredPos = new THREE.Vector3(
-    targetX - Math.sin(angle) * horiz,
-    targetY + eyeHeight + vert,
-    targetZ - Math.cos(angle) * horiz
-  );
+  let desiredX = targetX - Math.sin(angle) * horiz;
+  let desiredZ = targetZ - Math.cos(angle) * horiz;
+  const desiredY = targetY + eyeHeight + vert;
   const lookAt = new THREE.Vector3(
     targetX + Math.sin(targetYaw) * lookAheadDist,
     targetY + eyeHeight * 0.85,
     targetZ + Math.cos(targetYaw) * lookAheadDist
   );
+
+  // collision avoidance: pull the camera in along its own line back toward
+  // the look-at point if a building's footprint is in the way, instead of
+  // clipping through the wall (see game.js's cameraObstructionFrac)
+  if (ctx.avoidObstruction) {
+    const frac = ctx.avoidObstruction(lookAt.x, lookAt.z, desiredX, desiredZ);
+    if (frac < 1) {
+      const margin = Math.max(0, frac - 0.08); // stop a bit short of the wall, not right on it
+      desiredX = lookAt.x + (desiredX - lookAt.x) * margin;
+      desiredZ = lookAt.z + (desiredZ - lookAt.z) * margin;
+    }
+  }
+  const desiredPos = new THREE.Vector3(desiredX, desiredY, desiredZ);
 
   camPos.x = damp(camPos.x, desiredPos.x, 7, dt);
   camPos.y = damp(camPos.y, desiredPos.y, 7, dt);

@@ -436,6 +436,28 @@ function nearbyBuildings(x, z) {
   const bz = Math.round((z + CITY_HALF) / BLOCK - 0.5);
   return buildingAABBs.filter(b => Math.abs(b.bx - bx) <= 1 && Math.abs(b.bz - bz) <= 1);
 }
+// Camera collision avoidance: samples along the segment from the look-at
+// point to the desired camera position and returns how far along it (0-1)
+// the camera can go before entering a building's footprint. XZ-only (the
+// building AABBs carry no height data -- ground collision never needed
+// it, since cars/pedestrians are always at y=0), so this occasionally
+// pulls the camera in even when it's actually well above a short
+// building's roof; still strictly better than the previous behavior of
+// clipping straight through walls with no avoidance at all.
+function cameraObstructionFrac(targetX, targetZ, desiredX, desiredZ) {
+  const SAMPLES = 10;
+  for (let i = 1; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const x = targetX + (desiredX - targetX) * t;
+    const z = targetZ + (desiredZ - targetZ) * t;
+    for (const b of nearbyBuildings(x, z)) {
+      if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) {
+        return Math.max(0, (i - 1) / SAMPLES);
+      }
+    }
+  }
+  return 1;
+}
 function resolveCircleVsBuildings(state, radius) {
   for (const b of nearbyBuildings(state.x, state.z)) {
     const cx = clamp(state.x, b.minX, b.maxX);
@@ -1258,7 +1280,7 @@ function stepSim(dt) {
       raceHud.classList.add('hidden');
     }
 
-    updateCameraRig(dt, { mode, carState, motoState, planeState, heliState, foot, sprinting: keys.shift });
+    updateCameraRig(dt, { mode, carState, motoState, planeState, heliState, foot, sprinting: keys.shift, avoidObstruction: cameraObstructionFrac });
     updateDayNight(dt);
     syncMeshes(dt);
     updateHud(dt);
@@ -1582,7 +1604,7 @@ window.__debug = () => ({
   markers: getMarkers(),
   ramps: getRamps(),
   nightFactor,
-  camera: getCameraZoomDebug(),
+  camera: { ...getCameraZoomDebug(), pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z } },
   characterModel: {
     customModelLoaded: !!character.customModel,
     hasMixer: !!character.mixer,
@@ -1635,6 +1657,7 @@ window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
   return window.__debug();
 };
 window.__forceMode = (m) => { mode = m; character.group.visible = m === 'foot'; return window.__debug(); };
+window.__nearbyBuildings = (x, z) => nearbyBuildings(x, z);
 window.__setVehiclePos = (which, x, z, yaw, speed = 0) => {
   const state = which === 'car' ? carState : motoState;
   state.x = x; state.z = z; state.yaw = yaw; state.speed = speed; state.y = 0; state.vy = 0;
