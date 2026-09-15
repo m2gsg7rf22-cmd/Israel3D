@@ -21,7 +21,7 @@ for (let i = 0; i < 4; i++) {
 await page.evaluate(() => document.getElementById('menu-garage').click());
 await page.waitForTimeout(100);
 await page.evaluate(() => {
-  document.querySelectorAll('#air-dealership-list .dealer-item .dealer-btn').forEach((b) => b.click());
+  document.querySelectorAll('#aircraft-dealership-list .dealer-item .dealer-btn, #helicopter-dealership-list .dealer-item .dealer-btn').forEach((b) => b.click());
 });
 await page.evaluate(() => document.querySelector('#panel-garage .panel-close').click());
 
