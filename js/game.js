@@ -788,6 +788,7 @@ function updateHud(dt) {
   hudSpeed.textContent = state ? Math.round(Math.abs(state.speed) * 3.6) : Math.round(Math.abs(foot.speed) * 3.6);
   hudMode.textContent = MODE_LABEL[mode];
   syncWeaponButtonIcon();
+  syncFlightButtonLabels();
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) hudMsg.classList.remove('visible'); }
 
   boostHud.classList.toggle('hidden', !state);
@@ -1433,6 +1434,25 @@ function syncWeaponButtonIcon() {
   lastWeaponIconKey = w.key;
   tWeaponBtn.textContent = w.icon;
   tWeaponBtn.title = w.label;
+}
+
+// t-jump/t-run double as the flight ascend/descend controls (see the
+// bindHold calls above/below -- same held-button pattern as sprint/boost),
+// but their icons/labels are jump+run by default, so a player who hasn't
+// read a manual would have no way to guess "hold jump to climb" -- relabel
+// them while actually in a plane/heli so the icons match what they do
+const tJumpBtn = document.getElementById('t-jump');
+const tRunBtn = document.getElementById('t-run');
+let lastFlightLabelMode = null;
+function syncFlightButtonLabels() {
+  const flying = mode === 'plane' || mode === 'heli';
+  const key = flying ? 'flight' : 'ground';
+  if (key === lastFlightLabelMode) return;
+  lastFlightLabelMode = key;
+  tJumpBtn.textContent = flying ? '⬆️' : '⤴';
+  tJumpBtn.title = flying ? 'טיפוס' : 'קפיצה';
+  tRunBtn.textContent = flying ? '⬇️' : '🏃';
+  tRunBtn.title = flying ? 'ירידה' : 'ריצה / בוסט';
 }
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
