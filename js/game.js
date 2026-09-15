@@ -9,7 +9,8 @@ import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, g
 import { initProps, updateProps, getProps } from './props.js';
 import { initWeather, updateWeather, isRaining, getGripMul, getFogMul, getLightMul, __testSetRaining } from './weather.js';
 import { initSkidMarks, updateSkidMarks } from './skidMarks.js';
-import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
+import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp, getDeliveriesCompleted, getBestStunt } from './missions.js';
+import { checkAchievements } from './achievements.js';
 import { getLevel, getXP, xpIntoLevel, xpPerLevel } from './xpSystem.js';
 import { initCityArchitecture } from './cityArchitecture.js';
 import { initNature } from './natureEngine.js';
@@ -468,6 +469,7 @@ let lastSplash = null;
 let slowMoTimer = 0;
 let lightCullTimer = 0;
 let autosaveTimer = 0;
+let achievementTimer = 0;
 let lastMissionInfo = { score: 0, waypoint: null, splash: null };
 
 const keys = { left: false, right: false, up: false, down: false, shift: false, space: false, f: false, punch: false };
@@ -1293,6 +1295,13 @@ function stepSim(dt) {
 
     const leveledUpTo = consumeLevelUp();
     if (leveledUpTo) showMessage(`🆙 עלית לרמה ${leveledUpTo}!`);
+
+    achievementTimer -= dt;
+    if (achievementTimer <= 0) {
+      achievementTimer = 1.5;
+      const newly = checkAchievements({ level: getLevel(), cash: getScore(), deliveries: getDeliveriesCompleted(), bestStunt: getBestStunt() });
+      if (newly.length) showMessage(`🏆 ${newly[0]}`);
+    }
 
     const policeInfo = updatePolice(dt, playerState, mode !== 'foot');
     if (policeInfo.rammed) {

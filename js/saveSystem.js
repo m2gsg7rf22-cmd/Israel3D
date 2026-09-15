@@ -42,6 +42,7 @@ const DEFAULTS = {
   activeAirTier: null,
   ownedMotoTiers: [1],
   activeMotoTier: 1,
+  unlockedAchievements: [],
 };
 
 function readWorldsIndex() {

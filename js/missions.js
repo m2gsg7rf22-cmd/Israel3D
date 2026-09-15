@@ -7,6 +7,8 @@ const ramps = [];
 const markers = [];
 let delivery = null; // { toIdx, timeLeft, reward, kind: 'delivery'|'taxi' }
 let score = loadSave().cash;
+let deliveryCount = loadSave().deliveriesCompleted || 0;
+let bestStunt = loadSave().bestStuntHeight || 0;
 let splashTimer = 0;
 let splashText = '';
 let airborne = { active: false, startYaw: 0, spin: 0, startX: 0, startZ: 0 };
@@ -155,6 +157,8 @@ export function updateMissions(dt, playerX, playerZ, isVehicle) {
         addCash(delivery.reward);
         showSplash(`המשלוח הושלם! +₪${delivery.reward}`, 2.0);
       }
+      deliveryCount++;
+      saveState({ deliveriesCompleted: deliveryCount });
       delivery = null;
     } else if (delivery.timeLeft <= 0) {
       showSplash(delivery.kind === 'taxi' ? 'הנוסע ירד — נגמר הזמן' : 'המשלוח נכשל — נגמר הזמן', 1.8);
@@ -208,9 +212,12 @@ export function onAirborneEnd(x, z) {
   if (airborne.spin < 0.5 && dist < 4) return; // too small a hop to count as a stunt
   const reward = 500 + Math.round(Math.min(1, dist / 100) * 9500);
   addCash(reward);
+  if (dist > bestStunt) { bestStunt = dist; saveState({ bestStuntHeight: bestStunt }); }
   showSplash(`STUNT JUMP COMPLETED! +₪${reward}`, 2.2);
 }
 
 export function getScore() { return score; }
+export function getDeliveriesCompleted() { return deliveryCount; }
+export function getBestStunt() { return bestStunt; }
 export function getMarkers() { return markers.map(m => ({ x: m.x, z: m.z, kind: m.kind })); }
 export function getRamps() { return ramps.map(r => ({ x: r.x, z: r.z, yaw: r.yaw })); }
