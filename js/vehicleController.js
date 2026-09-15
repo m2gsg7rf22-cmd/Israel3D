@@ -1,6 +1,6 @@
 import { vehicleHitPedestrians } from './pedestrians.js';
 import { increaseWanted } from './police.js';
-import { vehicleHitProps, scrapeSparks, spawnSmoke } from './props.js';
+import { vehicleHitProps, scrapeSparks, spawnSmoke, spawnNitroFlame } from './props.js';
 import { checkRampLaunch, onAirborneStart, onAirborneFrame, onAirborneEnd, addCash } from './missions.js';
 import { playImpact } from './audio.js';
 import { spawnSkidMark } from './skidMarks.js';
@@ -429,6 +429,11 @@ export function updateVehicle(state, dt, params, ctx) {
       spawnSkidMark(rx + sx, rz + sz, state.yaw, handbrake ? 1 : 0.5);
       spawnSkidMark(rx - sx, rz - sz, state.yaw, handbrake ? 1 : 0.5);
     }
+  }
+  if (canBoost && state.fxTimer <= 0) {
+    state.fxTimer = 0.05;
+    const bx = state.x - Math.sin(state.yaw) * 1.6, bz = state.z - Math.cos(state.yaw) * 1.6;
+    spawnNitroFlame(bx, 0.4, bz, -Math.sin(state.yaw), -Math.cos(state.yaw));
   }
 
   const pedsHit = vehicleHitPedestrians(state.x, state.z, state.speed);

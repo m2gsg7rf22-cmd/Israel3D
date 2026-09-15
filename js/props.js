@@ -53,6 +53,17 @@ export function spawnSmoke(x, y, z, count = 2) {
     spawnParticle(x + (Math.random() - 0.5) * 0.4, y, z + (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.5, 0.6 + Math.random() * 0.5, (Math.random() - 0.5) * 0.5, 0.3 + Math.random() * 0.2, '#8a8a8a', 1.2, 0.5);
   }
 }
+// nitro/boost exhaust flame: hot cyan-white, fast, short-lived -- visually
+// distinct from the gray standstill-burnout smoke above
+export function spawnNitroFlame(x, y, z, dirX, dirZ, count = 3) {
+  for (let i = 0; i < count; i++) {
+    spawnParticle(
+      x + (Math.random() - 0.5) * 0.2, y, z + (Math.random() - 0.5) * 0.2,
+      dirX * (2 + Math.random() * 1.5), (Math.random() - 0.5) * 0.3, dirZ * (2 + Math.random() * 1.5),
+      0.18 + Math.random() * 0.12, Math.random() < 0.5 ? '#7ff2ff' : '#ffffff', 0.35, 0.2
+    );
+  }
+}
 export function spawnSpray(x, y, z, count = 3) {
   for (let i = 0; i < count; i++) {
     const ang = Math.random() * Math.PI * 2;
