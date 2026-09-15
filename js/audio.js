@@ -126,3 +126,42 @@ export function setMuted(muted) {
   if (!master) return;
   master.gain.setTargetAtTime(muted ? 0 : BASE_VOLUME, now(), 0.05);
 }
+
+// ---- in-game radio: there's no licensed music in this project, so each
+// "station" is a short synthesized arpeggio loop (distinct scale/tempo/
+// waveform per station) rather than a real song -- disclosed here instead
+// of silently passing a chiptune loop off as a soundtrack
+const STATIONS = [
+  { name: 'Meridian FM', notes: [261.6, 329.6, 392.0, 329.6], tempo: 0.28, wave: 'triangle' },
+  { name: 'Bay Beats', notes: [220, 220, 261.6, 246.9], tempo: 0.22, wave: 'square' },
+  { name: 'Night Drive', notes: [196, 233.1, 174.6, 220], tempo: 0.4, wave: 'sine' },
+];
+let radioGain = null, radioTimer = null, radioStep = 0;
+
+export function getStationNames() { return STATIONS.map((s) => s.name); }
+
+function playRadioStep(station) {
+  const t0 = now();
+  const note = station.notes[radioStep % station.notes.length];
+  const osc = ctx.createOscillator();
+  osc.type = station.wave;
+  osc.frequency.value = note;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + station.tempo * 0.9);
+  osc.connect(g).connect(radioGain);
+  osc.start(t0); osc.stop(t0 + station.tempo);
+  radioStep++;
+}
+
+export function setRadioStation(idx) {
+  if (!ctx) return;
+  if (radioTimer) { clearInterval(radioTimer); radioTimer = null; }
+  if (idx === null) return; // "off"
+  if (!radioGain) { radioGain = ctx.createGain(); radioGain.gain.value = 0.3; radioGain.connect(master); }
+  const station = STATIONS[idx % STATIONS.length];
+  radioStep = 0;
+  playRadioStep(station);
+  radioTimer = setInterval(() => playRadioStep(station), station.tempo * 1000);
+}

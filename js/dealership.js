@@ -60,6 +60,8 @@ export function initDealership(panelEl, { THREE, carRig, carParams, spendCash })
   spendCash_ = spendCash;
   const save = getSave();
   applyTierVisualsAndStats(save.activeCarTier, save.carColor);
+  if (save.carNeon) carRig_.setNeon(save.carNeon);
+  if (save.carRims) carRig_.applyRimColor(save.carRims);
 }
 
 function buyOrSelectTier(tier) {
@@ -80,6 +82,16 @@ export function setCarColor(color) {
   carRig_.applyColor(color);
 }
 
+export function setCarNeon(color) {
+  saveState({ carNeon: color || null });
+  carRig_.setNeon(color || null);
+}
+
+export function setCarRims(color) {
+  saveState({ carRims: color || null });
+  carRig_.applyRimColor(color || null);
+}
+
 // a cheat-code car unlock: same end state as buying the tier (owned +
 // active), but skips the level/price gate entirely -- used by cheatCodes.js
 export function grantCarTier(tier) {
@@ -91,6 +103,70 @@ export function grantCarTier(tier) {
   saveState({ activeCarTier: tier });
   applyTierVisualsAndStats(tier);
   return true;
+}
+
+// Air vehicles: unlike the 5 car tiers (one model, re-skinned per tier),
+// there's exactly one airplane model and one helicopter model -- so "tiers"
+// here just means "own the plane" / "own the helicopter", each its own
+// permanent unlock rather than a swappable line of models. Priced within
+// the spec's stated ranges (airplane ₪80k-250k, helicopter ₪150k-300k) but
+// gated by cash alone, same as the cars (no player-level requirement).
+export const AIR_TIERS = [
+  { key: 'plane', name: 'Skyhawk Cruiser (מטוס)', price: 120000, kind: 'airplane', desc: 'מטוס — דורש מהירות המראה' },
+  { key: 'heli', name: 'Bay Ranger (מסוק)', price: 200000, kind: 'helicopter', desc: 'מסוק — טיסה אנכית (VTOL)' },
+];
+
+function airDef(key) { return AIR_TIERS.find((t) => t.key === key); }
+
+function buyOrSelectAir(key) {
+  const save = getSave();
+  const owned = save.ownedAirTiers.includes(key);
+  if (!owned) {
+    const def = airDef(key);
+    if (!spendCash_(def.price)) return false;
+    saveState({ ownedAirTiers: [...save.ownedAirTiers, key] });
+  }
+  saveState({ activeAirTier: key });
+  return true;
+}
+
+// cheat-code unlock for an air vehicle, mirroring grantCarTier()
+export function grantAirTier(key) {
+  const save = getSave();
+  if (!airDef(key)) return false;
+  if (!save.ownedAirTiers.includes(key)) saveState({ ownedAirTiers: [...save.ownedAirTiers, key] });
+  saveState({ activeAirTier: key });
+  return true;
+}
+
+export function renderAirDealership() {
+  if (!panelEl_) return;
+  const listEl = panelEl_.querySelector('#air-dealership-list');
+  if (!listEl) return;
+  const save = getSave();
+  listEl.innerHTML = '';
+  for (const def of AIR_TIERS) {
+    const owned = save.ownedAirTiers.includes(def.key);
+    const active = save.activeAirTier === def.key;
+    const item = document.createElement('div');
+    item.className = 'dealer-item';
+    const action = active
+      ? '<span class="world-active-badge">פעיל</span>'
+      : `<button class="dealer-btn" type="button">${owned ? 'בחר' : '₪' + def.price.toLocaleString()}</button>`;
+    item.innerHTML = `
+      <div class="dealer-swatch" style="background:${def.kind === 'airplane' ? '#c0392b' : '#2e6b8f'}"></div>
+      <div class="dealer-info">
+        <div class="dealer-name"></div>
+        <div class="dealer-stats"></div>
+      </div>
+      ${action}
+    `;
+    item.querySelector('.dealer-name').textContent = def.name;
+    item.querySelector('.dealer-stats').textContent = def.desc;
+    const btn = item.querySelector('.dealer-btn');
+    if (btn) btn.addEventListener('click', () => { if (buyOrSelectAir(def.key)) renderAirDealership(); });
+    listEl.appendChild(item);
+  }
 }
 
 export function renderDealership() {

@@ -79,7 +79,7 @@ export function initCameraRig(camera, surfaceEl) {
   surfaceEl.style.touchAction = 'none';
 }
 
-// ctx: { mode, carState, motoState, foot, sprinting }
+// ctx: { mode, carState, motoState, planeState, heliState, foot, sprinting }
 export function updateCameraRig(dt, ctx) {
   camZoom = damp(camZoom, camZoomTarget, ZOOM_LERP_RATE, dt);
 
@@ -91,6 +91,16 @@ export function updateCameraRig(dt, ctx) {
     lookAheadDist = 6;
     speedKick = Math.abs(state.speed) * (ctx.mode === 'car' ? 0.03 : 0.035);
     fov = (ctx.mode === 'car' ? 60 : 64) + Math.abs(state.speed) * 0.25;
+  } else if (ctx.mode === 'plane' || ctx.mode === 'heli') {
+    // spec: camera sits 8-12m behind the aircraft, scaling with velocity --
+    // camZoom's own default (~7.2) plus a speed-based kick lands in that
+    // range instead of the ground-vehicle distance
+    const state = ctx.mode === 'plane' ? ctx.planeState : ctx.heliState;
+    targetX = state.x; targetZ = state.z; targetYaw = state.yaw; targetY = state.y || 0;
+    eyeHeight = ctx.mode === 'plane' ? 2.4 : 1.9;
+    lookAheadDist = 10;
+    speedKick = 1.5 + Math.abs(state.speed) * 0.12;
+    fov = 66 + Math.abs(state.speed) * 0.2;
   } else {
     const foot = ctx.foot;
     targetX = foot.x; targetZ = foot.z; targetYaw = foot.yaw; targetY = foot.y || 0;

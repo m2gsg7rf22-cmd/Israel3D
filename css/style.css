@@ -654,6 +654,15 @@ body {
 
 .swatch:active { border-color: #fff; }
 
+.swatch-off {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .preset-row {
   display: flex;
   gap: 6px;

@@ -34,6 +34,12 @@ const DEFAULTS = {
   jailTimerRemaining: 0,
   wantedLevel: 0,
   adminUnlocked: false,
+  ownedWeapons: ['fist'],
+  activeWeapon: 'fist',
+  carNeon: null,
+  carRims: null,
+  ownedAirTiers: [],
+  activeAirTier: null,
 };
 
 function readWorldsIndex() {

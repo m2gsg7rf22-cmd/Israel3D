@@ -3,6 +3,7 @@ import { setSirenActive } from './audio.js';
 let THREE_, scene_;
 const cars = [];
 const officers = [];
+let helicopter = null;
 let wanted = 0;
 let evadeTimer = 0;
 let flashTimer = 0;
@@ -119,16 +120,67 @@ function buildOfficer() {
   return { group, legL, legR, phase: Math.random() * Math.PI * 2 };
 }
 
+// a police chopper joins at 4+ stars: hovers in a slow circle above the
+// player at a fixed altitude with a real THREE.SpotLight (plus a faint
+// visible cone mesh, since a spotlight alone doesn't show its own beam)
+// tracking the ground straight below -- reads clearly at night, when
+// nothing else lights the street, exactly the "night-tracking" ask
+const HELI_ALT = 22, HELI_ORBIT_R = 24, HELI_SPOT_ANGLE = Math.PI / 9;
+function buildHelicopter() {
+  const group = new THREE_.Group();
+  const bodyMat = new THREE_.MeshStandardMaterial({ color: '#16181c', roughness: 0.4, metalness: 0.5 });
+  const body = new THREE_.Mesh(new THREE_.BoxGeometry(1.4, 1.0, 2.6), bodyMat);
+  group.add(body);
+  const tailBoom = new THREE_.Mesh(new THREE_.BoxGeometry(0.3, 0.3, 2.4), bodyMat);
+  tailBoom.position.set(0, 0.1, -2.2);
+  group.add(tailBoom);
+  const rotorMat = new THREE_.MeshStandardMaterial({ color: '#0a0a0a' });
+  const rotor = new THREE_.Mesh(new THREE_.BoxGeometry(6.5, 0.06, 0.18), rotorMat);
+  rotor.position.set(0, 0.65, 0);
+  group.add(rotor);
+  const tailRotor = new THREE_.Mesh(new THREE_.BoxGeometry(0.06, 1.1, 0.12), rotorMat);
+  tailRotor.position.set(0.2, 0.3, -3.3);
+  group.add(tailRotor);
+  const beacon = new THREE_.PointLight('#ff3030', 2, 20);
+  beacon.position.set(0, 0.8, 0);
+  group.add(beacon);
+
+  const spotLight = new THREE_.SpotLight('#fff6c8', 4, HELI_ALT + 10, HELI_SPOT_ANGLE, 0.4, 1.2);
+  spotLight.position.set(0, 0, 0);
+  const spotTarget = new THREE_.Object3D();
+  scene_.add(spotTarget);
+  spotLight.target = spotTarget;
+  group.add(spotLight);
+  const coneRadius = HELI_ALT * Math.tan(HELI_SPOT_ANGLE);
+  const coneMat = new THREE_.MeshBasicMaterial({ color: '#fff6c8', transparent: true, opacity: 0.1, side: THREE_.DoubleSide, depthWrite: false });
+  const cone = new THREE_.Mesh(new THREE_.ConeGeometry(coneRadius, HELI_ALT, 20, 1, true), coneMat);
+  cone.position.y = -HELI_ALT / 2;
+  group.add(cone);
+
+  scene_.add(group);
+  return { group, rotor, tailRotor, spotTarget, orbitAngle: Math.random() * Math.PI * 2 };
+}
+function despawnHelicopter() {
+  if (!helicopter) return;
+  scene_.remove(helicopter.spotTarget);
+  scene_.remove(helicopter.group);
+  helicopter = null;
+}
+
 function despawnAll() {
   for (const c of cars) scene_.remove(c.group);
   cars.length = 0;
   for (const o of officers) scene_.remove(o.group);
   officers.length = 0;
+  despawnHelicopter();
 }
 
 function ensureUnits(playerX, playerZ, playerYaw) {
   const wantCars = wanted <= 0 ? 0 : wanted <= 2 ? 1 + (wanted - 1) : wanted <= 4 ? 2 + (wanted - 3) : 4;
   const wantOfficers = wanted >= 3 ? Math.min(2, wanted - 2) : 0;
+
+  if (wanted >= 4 && !helicopter) helicopter = buildHelicopter();
+  else if (wanted < 4 && helicopter) despawnHelicopter();
 
   while (cars.length < wantCars) {
     const kind = wanted >= 3 ? 'interceptor' : 'cruiser';
@@ -282,6 +334,18 @@ export function updatePolice(dt, playerState, isVehicle) {
     o.legR.rotation.x = -swing;
     o.group.position.set(o.x, 0, o.z);
     o.group.rotation.y = o.yaw;
+  }
+
+  if (helicopter) {
+    helicopter.orbitAngle += dt * 0.35;
+    const hx = playerState.x + Math.sin(helicopter.orbitAngle) * HELI_ORBIT_R;
+    const hz = playerState.z + Math.cos(helicopter.orbitAngle) * HELI_ORBIT_R;
+    helicopter.group.position.set(hx, HELI_ALT, hz);
+    helicopter.group.rotation.y = Math.atan2(playerState.x - hx, playerState.z - hz);
+    helicopter.rotor.rotation.y += dt * 40;
+    helicopter.tailRotor.rotation.x += dt * 50;
+    helicopter.spotTarget.position.set(playerState.x, 0, playerState.z);
+    nearestDist = Math.min(nearestDist, Math.hypot(playerState.x - hx, playerState.z - hz));
   }
 
   // roadblocks at max wanted: periodically drop stationary cruisers ahead of the player

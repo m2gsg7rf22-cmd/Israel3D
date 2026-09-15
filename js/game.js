@@ -4,7 +4,7 @@ import { RenderPass } from '../vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '../vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
-import { initAudio, playPunch, setMuted } from './audio.js';
+import { initAudio, playPunch, setMuted, setRadioStation, getStationNames } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty, setPlayerInvisible } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
 import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
@@ -17,7 +17,9 @@ import { initCameraRig, updateCameraRig, getCameraZoomDebug, getCameraYawOffset,
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
-import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, grantCarTier } from './dealership.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, setCarNeon, setCarRims, grantCarTier, renderAirDealership, grantAirTier } from './dealership.js';
+import { initWeaponShop, renderWeaponShop, getActiveWeapon, WEAPONS } from './weaponShop.js';
+import { buildAirplane, buildHelicopterVehicle, updateAircraft, AIRPLANE_PARAMS, HELICOPTER_PARAMS } from './aircraft.js';
 import { applyCheatCode, isAdminUnlocked } from './cheatCodes.js';
 import { initCharacterCustomizer } from './characterCustomizer.js';
 import { initSafehouse, updateSafehouse, trySafehousePurchase, setActiveVehicle, getHomeLocation, getHouseAABBs } from './safehouse.js';
@@ -105,7 +107,8 @@ const panelShop = document.getElementById('panel-shop');
 const panelCustomizer = document.getElementById('panel-customizer');
 const panelSettings = document.getElementById('panel-settings');
 const panelRace = document.getElementById('panel-race');
-const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings, panelRace];
+const panelWeapons = document.getElementById('panel-weapons');
+const allPanels = [panelGarage, panelMap, panelShop, panelCustomizer, panelSettings, panelRace, panelWeapons];
 const shopBadge = document.getElementById('shop-badge');
 
 const boostHud = document.getElementById('boost-hud');
@@ -348,9 +351,9 @@ function saveGameState() {
     wantedLevel: getWantedLevel(),
   });
 }
-function playerXForSave() { return mode === 'car' ? carState.x : mode === 'moto' ? motoState.x : foot.x; }
-function playerZForSave() { return mode === 'car' ? carState.z : mode === 'moto' ? motoState.z : foot.z; }
-function playerYawForSave() { return mode === 'car' ? carState.yaw : mode === 'moto' ? motoState.yaw : foot.yaw; }
+function playerXForSave() { return mode === 'car' ? carState.x : mode === 'moto' ? motoState.x : mode === 'plane' ? planeState.x : mode === 'heli' ? heliState.x : foot.x; }
+function playerZForSave() { return mode === 'car' ? carState.z : mode === 'moto' ? motoState.z : mode === 'plane' ? planeState.z : mode === 'heli' ? heliState.z : foot.z; }
+function playerYawForSave() { return mode === 'car' ? carState.yaw : mode === 'moto' ? motoState.yaw : mode === 'plane' ? planeState.yaw : mode === 'heli' ? heliState.yaw : foot.yaw; }
 
 // applied once, right when the game actually starts (see startGame()) --
 // everything it needs (character, carState, ...) is already built by then
@@ -365,6 +368,8 @@ function restoreSavedState() {
     const loc = save.lastLocation;
     if (loc.mode === 'car') { carState.x = loc.x; carState.z = loc.z; carState.yaw = loc.yaw; mode = 'car'; character.group.visible = false; }
     else if (loc.mode === 'moto') { motoState.x = loc.x; motoState.z = loc.z; motoState.yaw = loc.yaw; mode = 'moto'; seatOnMoto(scene, character, moto.group); }
+    else if (loc.mode === 'plane') { planeState.x = loc.x; planeState.z = loc.z; planeState.yaw = loc.yaw; mode = 'plane'; character.group.visible = false; }
+    else if (loc.mode === 'heli') { heliState.x = loc.x; heliState.z = loc.z; heliState.yaw = loc.yaw; mode = 'heli'; character.group.visible = false; }
     else { foot.x = loc.x; foot.z = loc.z; foot.yaw = loc.yaw; mode = 'foot'; character.group.visible = true; }
   }
   if (save.wantedLevel > 0) __testSetWanted(save.wantedLevel, playerXForSave(), playerZForSave());
@@ -374,6 +379,12 @@ initNature(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HA
 const car = buildCar(THREE, scene);
 const moto = buildMoto(THREE, scene);
 const character = buildCharacter(THREE, scene);
+// no in-world airport exists, so the two air vehicles just live parked at a
+// fixed open patch near a map corner (clear of buildings) -- walk up and
+// press F to fly, same as any car/moto, once bought at the dealership
+const AIRFIELD_X = CITY_HALF - 30, AIRFIELD_Z = -CITY_HALF + 30;
+const plane = buildAirplane(THREE, scene);
+const heli = buildHelicopterVehicle(THREE, scene);
 
 // ============================================================
 // Pedestrians
@@ -389,6 +400,8 @@ initMissions(scene, THREE);
 const carState = { x: 6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const motoState = { x: -6, z: 14, yaw: Math.PI, speed: 0, y: 0, vy: 0, boosting: false };
 const foot = { x: 0, z: 20, yaw: Math.PI, y: 0, vy: 0, speed: 0, grounded: true, phase: 0 };
+const planeState = { x: AIRFIELD_X, z: AIRFIELD_Z, yaw: 0, speed: 0, y: 0, vy: 0, steer: 0 };
+const heliState = { x: AIRFIELD_X - 12, z: AIRFIELD_Z, yaw: 0, speed: 0, y: 0, vy: 0, steer: 0 };
 let gpsPath = null; // ordered list of {x,z} road-graph hops to the tapped destination
 
 let mode = 'foot';
@@ -447,6 +460,14 @@ function resolveCircleVsBuildings(state, radius) {
 // context passed into the extracted vehicleController.updateVehicle() so it
 // can reach world collision/lamp logic that still lives in this module
 const vehicleCtx = { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
+const aircraftCtx = { keys, steerThrottle };
+
+// the single source of truth for "wherever the player currently is",
+// whichever of the five state objects that means -- used everywhere
+// something (camera, AI, traffic, HUD, sun) needs to follow the player
+function currentPlayerState() {
+  return mode === 'car' ? carState : mode === 'moto' ? motoState : mode === 'plane' ? planeState : mode === 'heli' ? heliState : foot;
+}
 
 initRacing(scene, THREE, {
   BLOCK, CITY_HALF, buildCar, updateVehicle, CAR_PARAMS,
@@ -542,15 +563,18 @@ function showMessage(text) {
 
 function tryPunch(forceWeapon) {
   if (mode !== 'foot') return;
-  const isKnife = (forceWeapon || weapon) === 'knife';
-  const hit = punchNear(foot.x, foot.z, foot.yaw, isKnife ? 2.1 : 1.5);
+  // forceWeapon 'fist' (the dedicated mobile punch button) always means
+  // free bare hands; anything else (keyboard E, or the mobile weapon
+  // button) attacks with whatever's equipped from the weapon shop
+  const w = forceWeapon === 'fist' ? WEAPONS[0] : getActiveWeapon();
+  const hit = punchNear(foot.x, foot.z, foot.yaw, w.range);
   if (hit) {
     playPunch();
-    // a knife draws attention regardless of time of day, and escalates the
-    // search level faster than a bare-handed shove
-    if (isKnife) increaseWanted(foot.x, foot.z, 2);
-    else if (nightFactor < 0.5) increaseWanted(foot.x, foot.z, 1); // "in broad daylight" per spec
-    showMessage(isKnife ? 'דקירה!' : 'אגרוף!');
+    // an equipped weapon draws attention regardless of time of day and
+    // escalates the search level faster than a bare-handed shove
+    if (w.key !== 'fist') increaseWanted(foot.x, foot.z, w.wantedBonus);
+    else if (nightFactor < 0.5) increaseWanted(foot.x, foot.z, w.wantedBonus); // "in broad daylight" per spec
+    showMessage(w.key === 'fist' ? 'אגרוף!' : `${w.label}!`);
   }
 }
 
@@ -573,7 +597,35 @@ function tryEnterExit() {
       showMessage('עלית לאופנוע — F ליציאה');
       return true;
     }
+    const save = getSave();
+    if (save.ownedAirTiers.includes('plane') && Math.hypot(foot.x - planeState.x, foot.z - planeState.z) <= ENTER_RANGE) {
+      mode = 'plane';
+      character.group.visible = false;
+      showMessage('נכנסת למטוס — F ליציאה');
+      return true;
+    }
+    if (save.ownedAirTiers.includes('heli') && Math.hypot(foot.x - heliState.x, foot.z - heliState.z) <= ENTER_RANGE) {
+      mode = 'heli';
+      character.group.visible = false;
+      showMessage('נכנסת למסוק — F ליציאה');
+      return true;
+    }
     return false;
+  } else if (mode === 'plane' || mode === 'heli') {
+    const state = mode === 'plane' ? planeState : heliState;
+    if (state.y > 0.6 || Math.abs(state.speed) > MAX_EXIT_SPEED) {
+      showMessage('נחת והאט כדי לצאת מכלי הטיס');
+      return true;
+    }
+    foot.x = state.x - Math.sin(state.yaw) * 3;
+    foot.z = state.z - Math.cos(state.yaw) * 3;
+    foot.yaw = state.yaw;
+    state.speed = 0;
+    state.vy = 0;
+    mode = 'foot';
+    character.group.visible = true;
+    showMessage('ירדת מכלי הטיס');
+    return true;
   } else {
     const state = mode === 'car' ? carState : motoState;
     if (Math.abs(state.speed) <= MAX_EXIT_SPEED) {
@@ -606,7 +658,7 @@ function updateDayNight(dt) {
   else n = 0;
 
   const sunAngle = dayTime * Math.PI * 2;
-  const playerState = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  const playerState = currentPlayerState();
   dirLight.position.set(playerState.x + Math.cos(sunAngle) * 60, Math.max(6, Math.sin(sunAngle) * 60 + 20), playerState.z + 30);
   dirLight.target.position.set(playerState.x, 0, playerState.z);
   dirLight.intensity = damp(dirLight.intensity, 1.6 - n * 1.3, 3, dt);
@@ -652,6 +704,21 @@ function syncMeshes(dt) {
   moto.group.rotation.x = damp(moto.group.rotation.x, motoState.boosting ? -0.14 : 0, 6, dt);
   const motoSpin = motoState.speed * dt / 0.34;
   for (const w of moto.wheels) w.rotation.x += motoSpin;
+
+  plane.group.position.set(planeState.x, planeState.y, planeState.z);
+  plane.group.rotation.y = planeState.yaw;
+  plane.group.rotation.z = damp(plane.group.rotation.z, -(planeState.steer || 0) * 0.4, 6, dt);
+  plane.group.rotation.x = damp(plane.group.rotation.x, clamp((planeState.vy || 0) / 25, -0.25, 0.25), 6, dt);
+  const planeSpin = (mode === 'plane' ? 25 : 3) + Math.abs(planeState.speed);
+  plane.prop.rotation.z += planeSpin * dt;
+  for (const w of plane.wheels) w.rotation.x += planeState.speed * dt / 0.22;
+
+  heli.group.position.set(heliState.x, heliState.y, heliState.z);
+  heli.group.rotation.y = heliState.yaw;
+  heli.group.rotation.x = damp(heli.group.rotation.x, clamp((heliState.speed || 0) / 40, -0.15, 0.15), 6, dt);
+  const heliSpin = mode === 'heli' ? 32 : 4;
+  heli.rotor.rotation.y += heliSpin * dt;
+  heli.tailRotor.rotation.x += heliSpin * 1.2 * dt;
 
   if (mode !== 'moto') {
     character.group.position.set(foot.x, foot.y, foot.z);
@@ -708,7 +775,7 @@ function drawMinimap() {
 // ============================================================
 // HUD
 // ============================================================
-const MODE_LABEL = { car: 'רכב', moto: 'אופנוע', foot: 'הליכה' };
+const MODE_LABEL = { car: 'רכב', moto: 'אופנוע', foot: 'הליכה', plane: 'מטוס', heli: 'מסוק' };
 function updateHud(dt) {
   const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
   hudSpeed.textContent = state ? Math.round(Math.abs(state.speed) * 3.6) : Math.round(Math.abs(foot.speed) * 3.6);
@@ -785,7 +852,7 @@ for (const p of allPanels) {
 
 function teleportToVehicle(which) {
   const state = which === 'car' ? carState : motoState;
-  const ref = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  const ref = currentPlayerState();
   state.x = ref.x + Math.sin(ref.yaw) * 4;
   state.z = ref.z + Math.cos(ref.yaw) * 4;
   state.yaw = ref.yaw; state.y = 0; state.vy = 0; state.speed = 0;
@@ -808,7 +875,7 @@ initGarage(panelGarage, { teleportToVehicle, repairVehicle });
 initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, block: BLOCK, buildingAABBs, pois }, {
   getMarkers,
   getPath: () => gpsPath,
-  getPlayer: () => (mode === 'foot' ? foot : (mode === 'car' ? carState : motoState)),
+  getPlayer: () => currentPlayerState(),
 }, (path, dest) => {
   if (!path) { showMessage('לא נמצא מסלול ליעד'); return; }
   gpsPath = path;
@@ -816,7 +883,7 @@ initMapGPS(panelMap, { citySize: CITY_SIZE, cityHalf: CITY_HALF, block: BLOCK, b
   showMessage(gpsPath.length > 1 ? `מסלול חושב — ${gpsPath.length - 1} צמתים בדרך` : 'יעד ניווט הוגדר');
 });
 window.__testSetGpsRoute = (destX, destZ) => {
-  const player = mode === 'foot' ? foot : (mode === 'car' ? carState : motoState);
+  const player = currentPlayerState();
   gpsPath = computeRoute(player.x, player.z, destX, destZ);
   return window.__debug();
 };
@@ -825,6 +892,30 @@ initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScor
 initDealership(panelGarage, { THREE, carRig: car, carParams: CAR_PARAMS, spendCash });
 document.querySelectorAll('#car-color-row .swatch').forEach((btn) => {
   btn.addEventListener('click', () => setCarColor(btn.dataset.color));
+});
+document.querySelectorAll('#car-neon-row .swatch').forEach((btn) => {
+  btn.addEventListener('click', () => setCarNeon(btn.dataset.color));
+});
+document.querySelectorAll('#car-rims-row .swatch').forEach((btn) => {
+  btn.addEventListener('click', () => setCarRims(btn.dataset.color));
+});
+
+initWeaponShop(panelWeapons, { spendCash });
+document.getElementById('settings-weapons').addEventListener('click', () => { closeAllPanels(); renderWeaponShop(); panelWeapons.classList.remove('hidden'); });
+
+// radio: cycles off -> station 1 -> station 2 -> station 3 -> off. Synth
+// loops, not real music -- see audio.js's own comment on why.
+const radioBtn = document.getElementById('settings-radio');
+const stationNames = getStationNames();
+let radioStationIdx = null; // null = off
+function applyRadio(idx) {
+  radioStationIdx = idx;
+  setRadioStation(idx);
+  radioBtn.textContent = idx === null ? '📻 רדיו: כבוי' : `📻 ${stationNames[idx]}`;
+}
+radioBtn.addEventListener('click', () => {
+  const next = radioStationIdx === null ? 0 : (radioStationIdx + 1 < stationNames.length ? radioStationIdx + 1 : null);
+  applyRadio(next);
 });
 
 initCharacterCustomizer(panelCustomizer, { shirtMat: character.shirtMat, pantsMat: character.pantsMat });
@@ -870,12 +961,6 @@ document.getElementById('settings-skip-time').addEventListener('click', () => { 
 // boxes fully coincided at 844x390) -- moved into the settings panel instead
 document.getElementById('settings-wardrobe').addEventListener('click', () => { closeAllPanels(); panelCustomizer.classList.remove('hidden'); });
 
-let weapon = 'fist'; // 'fist' | 'knife' -- toggled from settings, read by tryPunch()
-document.getElementById('settings-knife').addEventListener('click', (e) => {
-  weapon = weapon === 'fist' ? 'knife' : 'fist';
-  e.target.textContent = weapon === 'knife' ? '👊 החלף לאגרוף' : '🔪 החלף לסכין';
-});
-
 const TOUCH_SIZE_KEY = 'openCity.touchScale';
 function applyTouchScale(scale) {
   document.documentElement.style.setProperty('--touch-scale', scale);
@@ -904,7 +989,7 @@ try {
   applyPoliceDifficulty(savedDiff || getPoliceDifficulty());
 } catch (e) { /* private mode -- default difficulty stays normal */ }
 
-document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); panelGarage.classList.remove('hidden'); });
+document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); renderAirDealership(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });
@@ -1056,6 +1141,8 @@ function stepSim(dt) {
   if (!paused) {
     if (mode === 'car') { if (updateVehicle(carState, dt, CAR_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
     else if (mode === 'moto') { if (updateVehicle(motoState, dt, MOTO_PARAMS, vehicleCtx).launchedRamp) slowMoTimer = 1.1; }
+    else if (mode === 'plane') updateAircraft(planeState, dt, AIRPLANE_PARAMS, aircraftCtx, true);
+    else if (mode === 'heli') updateAircraft(heliState, dt, HELICOPTER_PARAMS, aircraftCtx, false);
     else updateFoot(dt);
     const pedInfo = updatePedestrians(dt, foot.x, foot.z);
     if (pedInfo.playerAttacked && mode === 'foot') {
@@ -1161,7 +1248,7 @@ function stepSim(dt) {
       raceHud.classList.add('hidden');
     }
 
-    updateCameraRig(dt, { mode, carState, motoState, foot, sprinting: keys.shift });
+    updateCameraRig(dt, { mode, carState, motoState, planeState, heliState, foot, sprinting: keys.shift });
     updateDayNight(dt);
     syncMeshes(dt);
     updateHud(dt);
@@ -1419,6 +1506,8 @@ window.__debug = () => ({
   mode, foot: { x: foot.x, z: foot.z, y: foot.y, yaw: foot.yaw, speed: foot.speed },
   car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting },
   moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting },
+  plane: { x: planeState.x, z: planeState.z, yaw: planeState.yaw, speed: planeState.speed, y: planeState.y, vy: planeState.vy },
+  heli: { x: heliState.x, z: heliState.z, yaw: heliState.yaw, speed: heliState.speed, y: heliState.y, vy: heliState.vy },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),
   distMoto: Math.hypot(foot.x - motoState.x, foot.z - motoState.z),
   pedCount: getPedestrians().length,

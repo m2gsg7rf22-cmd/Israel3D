@@ -95,6 +95,44 @@ export function buildCar(THREE, scene, { loadModel = true } = {}) {
       });
     }
   };
+  // rim color: tints wheel meshes specifically (the inverse mesh-name filter
+  // from applyColor's body tint) on both the procedural fallback and
+  // whichever real model is currently loaded, so it survives tier swaps the
+  // same way body color does
+  rig.currentRimColor = null;
+  rig.applyRimColor = (color) => {
+    rig.currentRimColor = color;
+    const c = color || '#111111';
+    for (const w of wheels) w.material.color.set(c);
+    if (rig.realModel) {
+      rig.realModel.traverse((o) => {
+        if (o.isMesh && o.material && o.material.color && /wheel|rim/i.test(o.name) && !/tire|tyre/i.test(o.name)) {
+          o.material.color.set(c);
+        }
+      });
+    }
+  };
+
+  // neon underglow: a single colored point light low under the chassis,
+  // plus a thin emissive strip mesh so it reads even from directly above --
+  // null color removes it entirely rather than just switching it off, since
+  // an unlit lamp fixture would look like leftover hardware on a stock car
+  let neonLight = null, neonStrip = null;
+  rig.currentNeon = null;
+  rig.setNeon = (color) => {
+    rig.currentNeon = color;
+    if (neonLight) { group.remove(neonLight); neonLight.dispose?.(); neonLight = null; }
+    if (neonStrip) { group.remove(neonStrip); neonStrip.geometry.dispose(); neonStrip.material.dispose(); neonStrip = null; }
+    if (!color) return;
+    neonLight = new THREE.PointLight(color, 2.2, 5, 2);
+    neonLight.position.set(0, 0.12, 0);
+    group.add(neonLight);
+    const stripMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
+    neonStrip = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.04, 3.8), stripMat);
+    neonStrip.position.set(0, 0.08, 0);
+    group.add(neonStrip);
+  };
+
   if (loadModel) loadCarModel(THREE, rig, DEFAULT_CAR_MODEL);
   return rig;
 }
@@ -168,6 +206,7 @@ function loadCarModel(THREE, rig, modelConfig) {
         rig.tailMat = tailMesh.material;
       }
       if (rig.currentColor) rig.applyColor(rig.currentColor);
+      if (rig.currentRimColor) rig.applyRimColor(rig.currentRimColor);
       console.info('[vehicleController] loaded real car model:', modelConfig.path);
     },
     undefined,
