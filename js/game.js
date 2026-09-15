@@ -4,7 +4,7 @@ import { RenderPass } from '../vendor/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '../vendor/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../vendor/postprocessing/OutputPass.js';
 import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from './pedestrians.js';
-import { initAudio, playPunch, setMuted, setRadioStation, getStationNames } from './audio.js';
+import { initAudio, playPunch, setMuted, setRadioStation, getStationNames, setEngineState, setTireSqueal, setWindNoise } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty, setPlayerInvisible } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
 import { initSkidMarks, updateSkidMarks } from './skidMarks.js';
@@ -854,6 +854,25 @@ function drawMinimap() {
 // HUD
 // ============================================================
 const MODE_LABEL = { car: 'רכב', moto: 'אופנוע', foot: 'הליכה', plane: 'מטוס', heli: 'מסוק' };
+// engine hum / tire squeal / wind noise -- tied to whichever vehicle is
+// currently active (or silent on foot). See audio.js for why these are
+// gain-gated persistent nodes rather than one-shot sounds.
+function updateVehicleAudio() {
+  const vState = mode === 'car' ? carState : mode === 'moto' ? motoState : mode === 'plane' ? planeState : mode === 'heli' ? heliState : null;
+  const activeParams = mode === 'car' ? CAR_PARAMS : mode === 'moto' ? MOTO_PARAMS : mode === 'plane' ? AIRPLANE_PARAMS : mode === 'heli' ? HELICOPTER_PARAMS : null;
+  if (!vState || !activeParams) {
+    setEngineState(false);
+    setTireSqueal(false);
+    setWindNoise(0);
+    return;
+  }
+  const speedFrac = clamp(Math.abs(vState.speed) / (activeParams.maxV || 30), 0, 1);
+  const { throttle } = steerThrottle();
+  setEngineState(true, speedFrac, Math.abs(throttle));
+  setTireSqueal(!!vState.drifting, 1);
+  setWindNoise(speedFrac);
+}
+
 function updateHud(dt) {
   const state = mode === 'car' ? carState : mode === 'moto' ? motoState : null;
   hudSpeed.textContent = state ? Math.round(Math.abs(state.speed) * 3.6) : Math.round(Math.abs(foot.speed) * 3.6);
@@ -1329,6 +1348,7 @@ function stepSim(dt) {
       raceHud.classList.add('hidden');
     }
 
+    updateVehicleAudio();
     updateCameraRig(dt, { mode, carState, motoState, planeState, heliState, foot, sprinting: keys.shift, avoidObstruction: cameraObstructionFrac });
     updateDayNight(dt);
     syncMeshes(dt);

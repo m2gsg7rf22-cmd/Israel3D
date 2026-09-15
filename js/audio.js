@@ -120,6 +120,76 @@ export function setHydrantSpray(active) {
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 export function isReady() { return !!ctx; }
 
+// ---- engine hum: one persistent oscillator (gain-gated, not stopped/
+// restarted) whose pitch and volume track speed/throttle -- shared across
+// car/moto/plane/heli since the player only ever occupies one at a time ----
+let engine = null;
+export function setEngineState(active, speedFrac = 0, throttleMag = 0) {
+  if (!ctx) return;
+  if (active && !engine) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 70;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 500;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    osc.connect(filt).connect(gain).connect(master);
+    osc.start();
+    engine = { osc, filt, gain };
+  }
+  if (!engine) return;
+  if (!active) { engine.gain.gain.setTargetAtTime(0, now(), 0.2); return; }
+  const freq = 65 + speedFrac * 260 + throttleMag * 35;
+  engine.osc.frequency.setTargetAtTime(freq, now(), 0.08);
+  engine.filt.frequency.setTargetAtTime(400 + speedFrac * 1800, now(), 0.08);
+  engine.gain.gain.setTargetAtTime(0.05 + throttleMag * 0.06 + speedFrac * 0.04, now(), 0.12);
+}
+
+// ---- tire squeal: filtered noise loop, active during a handbrake drift or
+// hard braking (see vehicleController.js's `drifting`/hardBraking) ----
+let squeal = null;
+export function setTireSqueal(active, intensity = 1) {
+  if (!ctx) return;
+  if (active && !squeal) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(2);
+    src.loop = true;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 1800;
+    filt.Q.value = 4;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(filt).connect(gain).connect(master);
+    src.start();
+    squeal = { src, filt, gain };
+  }
+  if (squeal) squeal.gain.gain.setTargetAtTime(active ? 0.16 * clamp01(intensity) : 0, now(), active ? 0.03 : 0.2);
+}
+
+// ---- wind: continuous noise loop, gain ramps up only past a speed
+// threshold (driving fast or flying, not idling/walking) ----
+let wind = null;
+export function setWindNoise(speedFrac) {
+  if (!ctx) return;
+  if (!wind) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(2);
+    src.loop = true;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 1200;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(filt).connect(gain).connect(master);
+    src.start();
+    wind = { src, filt, gain };
+  }
+  wind.gain.gain.setTargetAtTime(Math.max(0, speedFrac - 0.3) * 0.12, now(), 0.3);
+}
+
 // ---- global mute toggle for the settings panel ----
 const BASE_VOLUME = 0.55;
 export function setMuted(muted) {
