@@ -443,7 +443,7 @@ export function updateVehicle(state, dt, params, ctx) {
   if (hitLampPoles(state.x, state.z, state.speed)) { state.speed *= 0.8; playImpact(0.6); }
 
   const speedBefore = state.speed;
-  resolveCircleVsBuildings(state, params.radius);
+  resolveCircleVsBuildings(state, params.radius, dt);
   state.wallCooldown = (state.wallCooldown || 0) - dt;
   if (Math.abs(speedBefore) > 8 && state.speed < speedBefore * 0.9 && state.wallCooldown <= 0) {
     state.wallCooldown = 0.4;

@@ -507,7 +507,10 @@ function cameraObstructionFrac(targetX, targetZ, desiredX, desiredZ) {
   }
   return 1;
 }
-function resolveCircleVsBuildings(state, radius) {
+// dt: used only for the framerate-independent edge-of-map decel below --
+// building collisions stay an instant, non-dt push+speed-cut since that's
+// real solid-object collision and is supposed to feel abrupt.
+function resolveCircleVsBuildings(state, radius, dt = 1 / 60) {
   for (const b of nearbyBuildings(state.x, state.z)) {
     const cx = clamp(state.x, b.minX, b.maxX);
     const cz = clamp(state.z, b.minZ, b.maxZ);
@@ -521,13 +524,27 @@ function resolveCircleVsBuildings(state, radius) {
       if (state.speed !== undefined) state.speed *= 0.5;
     }
   }
-  // soft edge: push back in and kill the outward velocity component so
-  // reaching the map edge feels like slowing at a wall, never a snap/jump
+  // Soft edge: clamp position at the map boundary and bleed off only the
+  // outward-facing portion of speed, at a fixed per-second rate rather than
+  // a flat multiply. The old flat multiply (0.3x) reran every single frame
+  // the car stayed pinned against the edge, compounding to near-zero speed
+  // within a few frames (0.3^5 < 0.3%) regardless of framerate -- it read
+  // as the car slamming into an invisible wall and collapsing to a dead
+  // stop almost instantly. This instead decays smoothly over real seconds,
+  // so holding into the boundary feels like drag/resistance, not a wall,
+  // and a glancing approach (mostly parallel to the edge) barely slows at
+  // all since only the sin/cos component actually facing outward counts.
   const half = CITY_HALF - 4;
-  if (state.x > half) { state.x = half; if (state.speed !== undefined && Math.sin(state.yaw ?? 0) > 0) state.speed *= 0.3; }
-  else if (state.x < -half) { state.x = -half; if (state.speed !== undefined && Math.sin(state.yaw ?? 0) < 0) state.speed *= 0.3; }
-  if (state.z > half) { state.z = half; if (state.speed !== undefined && Math.cos(state.yaw ?? 0) > 0) state.speed *= 0.3; }
-  else if (state.z < -half) { state.z = -half; if (state.speed !== undefined && Math.cos(state.yaw ?? 0) < 0) state.speed *= 0.3; }
+  const EDGE_DECEL_PER_SEC = 3.2;
+  if (state.speed !== undefined) {
+    if (state.x > half) { state.x = half; const out = Math.max(0, Math.sin(state.yaw ?? 0)); state.speed -= out * Math.abs(state.speed) * EDGE_DECEL_PER_SEC * dt; }
+    else if (state.x < -half) { state.x = -half; const out = Math.max(0, -Math.sin(state.yaw ?? 0)); state.speed -= out * Math.abs(state.speed) * EDGE_DECEL_PER_SEC * dt; }
+    if (state.z > half) { state.z = half; const out = Math.max(0, Math.cos(state.yaw ?? 0)); state.speed -= out * Math.abs(state.speed) * EDGE_DECEL_PER_SEC * dt; }
+    else if (state.z < -half) { state.z = -half; const out = Math.max(0, -Math.cos(state.yaw ?? 0)); state.speed -= out * Math.abs(state.speed) * EDGE_DECEL_PER_SEC * dt; }
+  } else {
+    state.x = clamp(state.x, -half, half);
+    state.z = clamp(state.z, -half, half);
+  }
 }
 
 // context passed into the extracted vehicleController.updateVehicle() so it
@@ -594,7 +611,7 @@ function updateFoot(dt) {
   foot.speed = damp(foot.speed, targetSpeed, 13, dt);
   foot.x += Math.sin(foot.yaw) * foot.speed * dt;
   foot.z += Math.cos(foot.yaw) * foot.speed * dt;
-  resolveCircleVsBuildings(foot, 0.32);
+  resolveCircleVsBuildings(foot, 0.32, dt);
 
   spaceSinceLastTap += dt;
   if (isFlying) {

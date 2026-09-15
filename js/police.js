@@ -288,7 +288,7 @@ export function updatePolice(dt, playerState, isVehicle) {
       c.z += Math.cos(c.yaw) * c.speed * dt;
       // pursuing cars used to drive straight through buildings -- the exact
       // same collision list the player's own vehicle already respects
-      if (resolveCircleVsBuildings_) resolveCircleVsBuildings_(c, POLICE_CAR_RADIUS);
+      if (resolveCircleVsBuildings_) resolveCircleVsBuildings_(c, POLICE_CAR_RADIUS, dt);
     }
 
     for (const w of c.wheels) w.rotation.x += c.speed * dt / 0.35;
