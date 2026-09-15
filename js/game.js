@@ -18,7 +18,7 @@ import { initCameraRig, updateCameraRig, getCameraZoomDebug, getCameraYawOffset,
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
-import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, setCarNeon, setCarRims, grantCarTier, renderAirDealership, grantAirTier, renderMotoDealership, grantMotoTier } from './dealership.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, setCarNeon, setCarRims, grantCarTier, renderAircraftDealership, renderHelicopterDealership, grantAirTier, renderMotoDealership, grantMotoTier } from './dealership.js';
 import { initWeaponShop, renderWeaponShop, getActiveWeapon, WEAPONS } from './weaponShop.js';
 import { buildAirplane, buildHelicopterVehicle, updateAircraft, AIRPLANE_PARAMS, HELICOPTER_PARAMS } from './aircraft.js';
 import { applyCheatCode, isAdminUnlocked } from './cheatCodes.js';
@@ -1105,7 +1105,7 @@ try {
   applyPoliceDifficulty(savedDiff || getPoliceDifficulty());
 } catch (e) { /* private mode -- default difficulty stays normal */ }
 
-document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); renderMotoDealership(); renderAirDealership(); panelGarage.classList.remove('hidden'); });
+document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); renderMotoDealership(); renderAircraftDealership(); renderHelicopterDealership(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });

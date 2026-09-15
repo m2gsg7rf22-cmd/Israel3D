@@ -142,13 +142,17 @@ export function grantAirTier(key) {
   return true;
 }
 
-export function renderAirDealership() {
+// Renders one air-vehicle category into its own container -- aircraft and
+// helicopters used to share a single combined list, but the catalog is
+// supposed to be 4 strictly separate categories (Cars/Motorcycles/
+// Aircraft/Helicopters), each showing only its own vehicles.
+function renderAirCategory(listId, kind) {
   if (!panelEl_) return;
-  const listEl = panelEl_.querySelector('#air-dealership-list');
+  const listEl = panelEl_.querySelector(listId);
   if (!listEl) return;
   const save = getSave();
   listEl.innerHTML = '';
-  for (const def of AIR_TIERS) {
+  for (const def of AIR_TIERS.filter((t) => t.kind === kind)) {
     const owned = save.ownedAirTiers.includes(def.key);
     const active = save.activeAirTier === def.key;
     const item = document.createElement('div');
@@ -167,10 +171,12 @@ export function renderAirDealership() {
     item.querySelector('.dealer-name').textContent = def.name;
     item.querySelector('.dealer-stats').textContent = def.desc;
     const btn = item.querySelector('.dealer-btn');
-    if (btn) btn.addEventListener('click', () => { if (buyOrSelectAir(def.key)) renderAirDealership(); });
+    if (btn) btn.addEventListener('click', () => { if (buyOrSelectAir(def.key)) renderAirCategory(listId, kind); });
     listEl.appendChild(item);
   }
 }
+export function renderAircraftDealership() { renderAirCategory('#aircraft-dealership-list', 'airplane'); }
+export function renderHelicopterDealership() { renderAirCategory('#helicopter-dealership-list', 'helicopter'); }
 
 // Motorcycles: 3 genuinely different tiers (street/sport/off-road), see
 // MOTO_TIERS in vehicleController.js for the physics + visual differences.
