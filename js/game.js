@@ -18,7 +18,7 @@ import { initCameraRig, updateCameraRig, getCameraZoomDebug, getCameraYawOffset,
 import { initGarage } from './garage.js';
 import { initMapGPS, renderMapGPS, computeRoute } from './mapGPS.js';
 import { initModShop, refreshShopBadge, refreshShopPanel } from './modShop.js';
-import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, setCarNeon, setCarRims, grantCarTier, renderAirDealership, grantAirTier } from './dealership.js';
+import { initDealership, renderDealership, getActiveTierCostMultiplier, setCarColor, setCarNeon, setCarRims, grantCarTier, renderAirDealership, grantAirTier, renderMotoDealership, grantMotoTier } from './dealership.js';
 import { initWeaponShop, renderWeaponShop, getActiveWeapon, WEAPONS } from './weaponShop.js';
 import { buildAirplane, buildHelicopterVehicle, updateAircraft, AIRPLANE_PARAMS, HELICOPTER_PARAMS } from './aircraft.js';
 import { applyCheatCode, isAdminUnlocked } from './cheatCodes.js';
@@ -897,7 +897,7 @@ window.__testSetGpsRoute = (destX, destZ) => {
 };
 
 initModShop(panelShop, { carParams: CAR_PARAMS, motoParams: MOTO_PARAMS, getScore, spendCash, badgeEl: shopBadge, getCarTierMultiplier: getActiveTierCostMultiplier });
-initDealership(panelGarage, { THREE, carRig: car, carParams: CAR_PARAMS, spendCash });
+initDealership(panelGarage, { THREE, carRig: car, carParams: CAR_PARAMS, motoRig: moto, motoParams: MOTO_PARAMS, spendCash });
 document.querySelectorAll('#car-color-row .swatch').forEach((btn) => {
   btn.addEventListener('click', () => setCarColor(btn.dataset.color));
 });
@@ -997,7 +997,7 @@ try {
   applyPoliceDifficulty(savedDiff || getPoliceDifficulty());
 } catch (e) { /* private mode -- default difficulty stays normal */ }
 
-document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); renderAirDealership(); panelGarage.classList.remove('hidden'); });
+document.getElementById('menu-garage').addEventListener('click', () => { closeAllPanels(); renderDealership(); renderMotoDealership(); renderAirDealership(); panelGarage.classList.remove('hidden'); });
 document.getElementById('menu-map').addEventListener('click', () => { closeAllPanels(); renderMapGPS(); panelMap.classList.remove('hidden'); });
 document.getElementById('menu-shop').addEventListener('click', () => { closeAllPanels(); refreshShopPanel(); panelShop.classList.remove('hidden'); });
 document.getElementById('menu-race').addEventListener('click', () => { closeAllPanels(); renderRacePanel(); panelRace.classList.remove('hidden'); });
@@ -1531,6 +1531,7 @@ window.__debug = () => ({
   mode, foot: { x: foot.x, z: foot.z, y: foot.y, yaw: foot.yaw, speed: foot.speed },
   car: { x: carState.x, z: carState.z, yaw: carState.yaw, speed: carState.speed, y: carState.y, boosting: carState.boosting, drifting: carState.drifting, slipAngle: carState.slipAngle },
   moto: { x: motoState.x, z: motoState.z, yaw: motoState.yaw, speed: motoState.speed, y: motoState.y, boosting: motoState.boosting, drifting: motoState.drifting, slipAngle: motoState.slipAngle },
+  motoParams: { ...MOTO_PARAMS },
   plane: { x: planeState.x, z: planeState.z, yaw: planeState.yaw, speed: planeState.speed, y: planeState.y, vy: planeState.vy },
   heli: { x: heliState.x, z: heliState.z, yaw: heliState.yaw, speed: heliState.speed, y: heliState.y, vy: heliState.vy },
   distCar: Math.hypot(foot.x - carState.x, foot.z - carState.z),

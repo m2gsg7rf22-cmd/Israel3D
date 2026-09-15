@@ -7,8 +7,8 @@
 // survives the async model swap (see vehicleController.js's comment on why
 // that used to silently fail).
 import { getSave, saveState } from './saveSystem.js';
-import { setCarBase } from './modShop.js';
-import { swapCarModel, CAR_MODELS } from './vehicleController.js';
+import { setCarBase, setMotoBase } from './modShop.js';
+import { swapCarModel, CAR_MODELS, MOTO_TIERS } from './vehicleController.js';
 
 // gated by price alone -- no player-level requirement, so any tier is
 // available to buy the moment you can afford it
@@ -22,7 +22,7 @@ export const CAR_TIERS = [
 // tier 1 is the free starter car, already owned
 export const TIER_COST_MULTIPLIER = [1, 2, 3.5, 6, 9];
 
-let THREE_, carRig_, carParams_, spendCash_, panelEl_;
+let THREE_, carRig_, carParams_, motoRig_, motoParams_, spendCash_, panelEl_;
 // buildCar() in vehicleController.js already loads CAR_MODELS[0] (tier 1)
 // by default before this module ever runs, so starting this at that same
 // tier avoids redundantly reloading the identical model a second time the
@@ -52,16 +52,19 @@ export function getActiveTierCostMultiplier() {
   return TIER_COST_MULTIPLIER[idx >= 0 ? idx : 0];
 }
 
-export function initDealership(panelEl, { THREE, carRig, carParams, spendCash }) {
+export function initDealership(panelEl, { THREE, carRig, carParams, motoRig, motoParams, spendCash }) {
   panelEl_ = panelEl;
   THREE_ = THREE;
   carRig_ = carRig;
   carParams_ = carParams;
+  motoRig_ = motoRig;
+  motoParams_ = motoParams;
   spendCash_ = spendCash;
   const save = getSave();
   applyTierVisualsAndStats(save.activeCarTier, save.carColor);
   if (save.carNeon) carRig_.setNeon(save.carNeon);
   if (save.carRims) carRig_.applyRimColor(save.carRims);
+  applyMotoTierVisualsAndStats(save.activeMotoTier);
 }
 
 function buyOrSelectTier(tier) {
@@ -165,6 +168,73 @@ export function renderAirDealership() {
     item.querySelector('.dealer-stats').textContent = def.desc;
     const btn = item.querySelector('.dealer-btn');
     if (btn) btn.addEventListener('click', () => { if (buyOrSelectAir(def.key)) renderAirDealership(); });
+    listEl.appendChild(item);
+  }
+}
+
+// Motorcycles: 3 genuinely different tiers (street/sport/off-road), see
+// MOTO_TIERS in vehicleController.js for the physics + visual differences.
+// Same owned/active/price-gated pattern as the car tiers.
+function motoTierDef(tier) { return MOTO_TIERS.find((t) => t.tier === tier); }
+
+function applyMotoTierVisualsAndStats(tier) {
+  const def = motoTierDef(tier);
+  if (!def || !motoRig_) return;
+  motoRig_.setMotoTier(def.kind);
+  motoRig_.applyColor(def.color);
+  const newBase = { accel: def.accel, maxV: def.maxV, brake: def.brake, steerBase: def.steerBase, steerSpeed: def.steerSpeed, turnDenom: def.turnDenom, drag: def.drag };
+  Object.assign(motoParams_, newBase);
+  setMotoBase(motoParams_);
+}
+
+function buyOrSelectMotoTier(tier) {
+  const save = getSave();
+  const owned = save.ownedMotoTiers.includes(tier);
+  if (!owned) {
+    const def = motoTierDef(tier);
+    if (!spendCash_(def.price)) return false;
+    saveState({ ownedMotoTiers: [...save.ownedMotoTiers, tier] });
+  }
+  saveState({ activeMotoTier: tier });
+  applyMotoTierVisualsAndStats(tier);
+  return true;
+}
+
+// cheat-code unlock, mirroring grantCarTier()
+export function grantMotoTier(tier) {
+  const save = getSave();
+  if (!motoTierDef(tier)) return false;
+  if (!save.ownedMotoTiers.includes(tier)) saveState({ ownedMotoTiers: [...save.ownedMotoTiers, tier] });
+  saveState({ activeMotoTier: tier });
+  applyMotoTierVisualsAndStats(tier);
+  return true;
+}
+
+export function renderMotoDealership() {
+  if (!panelEl_) return;
+  const listEl = panelEl_.querySelector('#moto-dealership-list');
+  if (!listEl) return;
+  const save = getSave();
+  listEl.innerHTML = '';
+  for (const def of MOTO_TIERS) {
+    const owned = save.ownedMotoTiers.includes(def.tier);
+    const active = save.activeMotoTier === def.tier;
+    const item = document.createElement('div');
+    item.className = 'dealer-item';
+    const action = active
+      ? '<span class="world-active-badge">פעיל</span>'
+      : `<button class="dealer-btn" type="button">${owned ? 'בחר' : '₪' + def.price.toLocaleString()}</button>`;
+    item.innerHTML = `
+      <div class="dealer-swatch" style="background:${def.color}"></div>
+      <div class="dealer-info">
+        <div class="dealer-name"></div>
+        <div class="dealer-stats">האצה ${def.accel} • מהירות ${def.maxV} • בלימה ${Math.abs(def.brake)}</div>
+      </div>
+      ${action}
+    `;
+    item.querySelector('.dealer-name').textContent = def.name;
+    const btn = item.querySelector('.dealer-btn');
+    if (btn) btn.addEventListener('click', () => { if (buyOrSelectMotoTier(def.tier)) renderMotoDealership(); });
     listEl.appendChild(item);
   }
 }

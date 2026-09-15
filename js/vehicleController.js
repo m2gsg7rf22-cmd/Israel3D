@@ -235,8 +235,22 @@ export function swapCarModel(THREE, rig, modelConfig) {
   loadCarModel(THREE, rig, modelConfig);
 }
 
+// 3 motorcycle tiers sharing one procedural chassis (there's no glTF sample
+// asset for motorcycles the way there was for the 5 dealership cars, so
+// unlike those these are genuinely-different variations of one build
+// function rather than 3 unrelated models) -- each gets its own colors,
+// a tier-specific add-on mesh, and (in MOTO_TIERS below) real, different
+// physics rather than a coat of paint on identical handling.
+export const MOTO_TIERS = [
+  { tier: 1, kind: 'street', name: 'Street Hawk 1000', price: 0, color: '#b6404a',
+    accel: 26, maxV: 24, brake: -30, steerBase: 0.62, steerSpeed: 0.75, turnDenom: 5, drag: 0.14 },
+  { tier: 2, kind: 'sport', name: 'Apex R Sport', price: 22000, color: '#1f4fbf',
+    accel: 33, maxV: 31, brake: -35, steerBase: 0.78, steerSpeed: 1.05, turnDenom: 4, drag: 0.12 },
+  { tier: 3, kind: 'offroad', name: 'Trailblazer Adventure', price: 14000, color: '#5a7d3a',
+    accel: 21, maxV: 19, brake: -25, steerBase: 0.55, steerSpeed: 0.58, turnDenom: 6.5, drag: 0.17 },
+];
+
 export function buildMoto(THREE, scene) {
-  // "Street Hawk 1000": exposed-engine naked bike
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#b6404a', roughness: 0.35, metalness: 0.55 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 2.0), bodyMat);
@@ -296,10 +310,43 @@ export function buildMoto(THREE, scene) {
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), headMat);
   head.position.set(0, 0.85, 1.05);
   group.add(head);
+
+  // sport-only: a small windscreen fairing
+  const windscreen = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.28, 0.05),
+    new THREE.MeshStandardMaterial({ color: '#dfe9ff', transparent: true, opacity: 0.35, roughness: 0.1 })
+  );
+  windscreen.position.set(0, 1.0, 1.0);
+  windscreen.rotation.x = -0.35;
+  windscreen.visible = false;
+  group.add(windscreen);
+
+  // off-road-only: a raised front fender + knobby-wider wheels
+  const fenderMat = new THREE.MeshStandardMaterial({ color: '#333', roughness: 0.8 });
+  const fender = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.5), fenderMat);
+  fender.position.set(0, 0.62, 1.05);
+  fender.rotation.x = -0.25;
+  fender.visible = false;
+  group.add(fender);
+
   const roll = new THREE.Group();
   roll.add(group);
   scene.add(roll);
-  return { group: roll, wheels: [front, rear] };
+
+  const rig = { group: roll, wheels: [front, rear], bodyMat, currentColor: null, currentKind: 'street' };
+  rig.applyColor = (color) => { rig.currentColor = color; bodyMat.color.set(color); };
+  // switches which tier-specific decoration is visible and rescales the
+  // wheels a touch for the off-road bike's chunkier look -- same chassis,
+  // genuinely different silhouette and (via MOTO_TIERS) different handling
+  rig.setMotoTier = (kind) => {
+    rig.currentKind = kind;
+    windscreen.visible = kind === 'sport';
+    fender.visible = kind === 'offroad';
+    const wheelScale = kind === 'offroad' ? 1.18 : 1;
+    front.scale.setScalar(wheelScale);
+    rear.scale.setScalar(wheelScale);
+  };
+  return rig;
 }
 
 // ctx: { keys, resolveCircleVsBuildings, hitLampPoles, gravity }

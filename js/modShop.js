@@ -80,6 +80,11 @@ export function setCarBase(carParams) {
   base.car = { ...carParams };
   applyAll();
 }
+// same as setCarBase, for switching motorcycle tiers
+export function setMotoBase(motoParams) {
+  base.moto = { ...motoParams };
+  applyAll();
+}
 
 function computeAffordable() {
   const cash = getScore_ ? getScore_() : 0;

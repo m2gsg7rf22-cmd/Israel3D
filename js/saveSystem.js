@@ -40,6 +40,8 @@ const DEFAULTS = {
   carRims: null,
   ownedAirTiers: [],
   activeAirTier: null,
+  ownedMotoTiers: [1],
+  activeMotoTier: 1,
 };
 
 function readWorldsIndex() {
