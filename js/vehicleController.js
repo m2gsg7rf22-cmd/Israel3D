@@ -353,7 +353,8 @@ export function buildMoto(THREE, scene) {
 // returns { launchedRamp } so the caller (game.js) can trigger its own
 // slow-motion timer without this module reaching back into the render loop
 export function updateVehicle(state, dt, params, ctx) {
-  const { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity } = ctx;
+  const { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity, getGripMul } = ctx;
+  const gripMul = getGripMul ? getGripMul() : 1; // wet-road grip reduction (weather.js); 1 = unchanged
   const yawBefore = state.yaw;
   // analog steer/throttle straight from the joystick (falls back to digital
   // -1/0/1 from the keyboard) -- previously this read keys.left/right/up/down
@@ -398,7 +399,7 @@ export function updateVehicle(state, dt, params, ctx) {
   state.drifting = handbrake;
   const speedFrac = Math.min(Math.abs(state.speed) / params.turnDenom, 1);
   const yawRate = steer * (params.steerBase + Math.min(Math.abs(state.speed) / 30, 1) * params.steerSpeed)
-    * speedFrac * Math.sign(state.speed || 1) * (handbrake ? 2.1 : 1);
+    * speedFrac * Math.sign(state.speed || 1) * (handbrake ? 2.1 : 1) * gripMul;
   state.yaw += yawRate * dt;
   if (handbrake) {
     state.speed *= (1 - 0.9 * dt); // rear grip loss scrubs speed fast, like real friction

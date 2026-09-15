@@ -7,6 +7,7 @@ import { spawnPedestrians, updatePedestrians, punchNear, getPedestrians } from '
 import { initAudio, playPunch, setMuted, setRadioStation, getStationNames, setEngineState, setTireSqueal, setWindNoise } from './audio.js';
 import { initPolice, increaseWanted, updatePolice, getWantedLevel, isFlashing, getPoliceUnits, __testSetWanted, setPoliceDifficulty, getPoliceDifficulty, setPlayerInvisible } from './police.js';
 import { initProps, updateProps, getProps } from './props.js';
+import { initWeather, updateWeather, isRaining, getGripMul, getFogMul, getLightMul, __testSetRaining } from './weather.js';
 import { initSkidMarks, updateSkidMarks } from './skidMarks.js';
 import { initMissions, updateMissions, getMarkers, getRamps, getScore, spendCash, addCash, acceptPendingMission, consumeLevelUp } from './missions.js';
 import { getLevel, getXP, xpIntoLevel, xpPerLevel } from './xpSystem.js';
@@ -443,6 +444,7 @@ spawnPedestrians(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: C
 initPolice(scene, THREE, resolveCircleVsBuildings);
 initProps(scene, THREE, { grid: GRID, block: BLOCK, lot: LOT, cityHalf: CITY_HALF, seed: CITY_SEED });
 initSkidMarks(THREE, scene);
+initWeather(THREE, scene);
 initMissions(scene, THREE);
 
 // ============================================================
@@ -549,7 +551,7 @@ function resolveCircleVsBuildings(state, radius, dt = 1 / 60) {
 
 // context passed into the extracted vehicleController.updateVehicle() so it
 // can reach world collision/lamp logic that still lives in this module
-const vehicleCtx = { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY };
+const vehicleCtx = { keys, steerThrottle, resolveCircleVsBuildings, hitLampPoles, gravity: GRAVITY, getGripMul };
 const aircraftCtx = { keys, steerThrottle };
 
 // the single source of truth for "wherever the player currently is",
@@ -765,7 +767,9 @@ function updateDayNight(dt) {
   }
   scene.background.copy(skyColor);
   scene.fog.color.copy(skyColor);
-  scene.fog.density = 0.0016 * (raceTheme?.fogDensityMul ?? 1);
+  scene.fog.density = 0.0016 * (raceTheme?.fogDensityMul ?? 1) * getFogMul();
+  dirLight.intensity *= getLightMul();
+  hemiLight.intensity *= getLightMul();
 
   for (const mat of shopSigns) mat.emissiveIntensity = n;
   for (const light of nightLights) light.intensity = n * light.__base;
@@ -1269,6 +1273,7 @@ function stepSim(dt) {
     }
     updateProps(dt);
     updateSkidMarks(dt);
+    updateWeather(dt, currentPlayerState().x, currentPlayerState().z);
     updateLampPoles(dt);
     updateSafehouse(dt, foot.x, foot.z, mode === 'foot');
     updateLandmark(dt);
@@ -1722,6 +1727,7 @@ window.__stepFrames = (n, dtMs = 16.6) => {
   composer.render();
 };
 window.__setRunning = (v) => { running = v; };
+window.__setRaining = (v) => __testSetRaining(v);
 window.__walkTo = (targetX, targetZ, within, maxIters = 400) => {
   // drives the joystick's (x, y) directly rather than keys.left/right --
   // since updateFoot() now walks camera-relative (see its own comment),
